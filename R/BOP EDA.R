@@ -3,6 +3,7 @@
 library(tidyverse)
 library(googlesheets4)
 library(lubridate)
+library(rnoaa)
 
 # Get Data ----------------------------------
 wq_url <-
@@ -24,7 +25,7 @@ wq_meta <- wq_meta_raw %>%
 
 
 data_names <- c("site","date","year","month","high_tide","sample_time","bacteria",
-                "precip_t0","precip_t-1","precip_t-2","precip_t-3","precip_t-4",
+                "precip_t-0","precip_t-1","precip_t-2","precip_t-3","precip_t-4",
                 "precip_t-5","precip_t-6","notes")
 
 wq_data <- wq_data_raw
@@ -44,7 +45,6 @@ wq_data <- wq_data %>%
   mutate(across(contains("precip"), as.numeric)) %>%
   mutate(bacteria = as.numeric(bacteria)) %>%
   mutate(notes = replace_na(notes, "")) %>%
-  mutate(site = as.factor(site)) %>%
   # fix some typos
   mutate(site = str_replace(site, "Daylighted Section", "daylighted section")) %>%
   mutate(site = str_replace(site, "Govenors", "Governors")) %>%
@@ -52,7 +52,39 @@ wq_data <- wq_data %>%
     bacteria,
     breaks = c(-1, 0, 35, 104, 49999),
     labels = c("Not Detected", "Good", "Fair", "Unacceptable")
-  ))
+  )) %>%
+  mutate(site = as.factor(site))
+
+precip_data <- wq_data %>%
+  select(date,starts_with("precip")) %>%
+  unique() %>%
+  pivot_longer(cols=starts_with("precip"),names_to = "lag",values_to = "precip") %>%
+  mutate(lag = as.numeric(str_remove(lag,"precip_t"))) %>%
+  mutate(date = date + lag) %>%
+  select(-lag) %>%
+  arrange(date)
+
+
+# NYC Central Park
+ncdc_datasets(stationid = "GHCND:USW00094728")
+
+datatypeids = c('TMAX','TMIN')
+
+weather <- ncdc(
+  datasetid = 'GHCND',
+  stationid = "GHCND:USW00094728",
+  datatypeids,
+  startdate = '2011-12-01',
+  enddate = '2012-12-01',
+  limit = 365*2,
+  add_units = TRUE
+)$data
+
+temp <- with_units$data
+
+noaa_datatypes <- ncdc_datatypes(datasetid = "GHCND",
+                                 stationid = "GHCND:USW00094728",
+                                 limit = 200)$data %>% as_tibble()
 
 
 # EDA ---------------------------------------------
@@ -74,3 +106,9 @@ wq_data %>%
   filter(bacteria < 200) %>%
   group_by(month) %>%
   ggplot(aes(as.factor(month),bacteria)) + geom_boxplot()
+
+
+precip_data %>%
+  ggplot(aes(date,precip)) + geom_col() +
+  scale_y_continuous(limits = c(0,2))
+
