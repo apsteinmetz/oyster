@@ -55,37 +55,17 @@ wq_data <- wq_data %>%
   )) %>%
   mutate(site = as.factor(site))
 
-precip_data <- wq_data %>%
-  select(date,starts_with("precip")) %>%
-  unique() %>%
-  pivot_longer(cols=starts_with("precip"),names_to = "lag",values_to = "precip") %>%
-  mutate(lag = as.numeric(str_remove(lag,"precip_t"))) %>%
-  mutate(date = date + lag) %>%
-  select(-lag) %>%
-  arrange(date)
+save(wq_data,file="data/wq_data.rdata")
+save(wq_meta,file="data/wq_meta.rdata")
 
-
-# NYC Central Park
-ncdc_datasets(stationid = "GHCND:USW00094728")
-
-datatypeids = c('TMAX','TMIN')
-
-weather <- ncdc(
-  datasetid = 'GHCND',
-  stationid = "GHCND:USW00094728",
-  datatypeids,
-  startdate = '2011-12-01',
-  enddate = '2012-12-01',
-  limit = 365*2,
-  add_units = TRUE
-)$data
-
-temp <- with_units$data
-
-noaa_datatypes <- ncdc_datatypes(datasetid = "GHCND",
-                                 stationid = "GHCND:USW00094728",
-                                 limit = 200)$data %>% as_tibble()
-
+# precip_data <- wq_data %>%
+#   select(date,starts_with("precip")) %>%
+#   unique() %>%
+#   pivot_longer(cols=starts_with("precip"),names_to = "lag",values_to = "precip") %>%
+#   mutate(lag = as.numeric(str_remove(lag,"precip_t"))) %>%
+#   mutate(date = date + lag) %>%
+#   select(-lag) %>%
+#   arrange(date)
 
 # EDA ---------------------------------------------
 
@@ -105,10 +85,21 @@ bacteria_by_site %>%
 wq_data %>%
   filter(bacteria < 200) %>%
   group_by(month) %>%
-  ggplot(aes(as.factor(month),bacteria)) + geom_boxplot()
+  ggplot(aes(month,bacteria,group = month)) + geom_boxplot()
 
+load("data/weather.rdata")
+weather_by_month <- weather %>%
+  mutate(month = month(date)) %>%
+  group_by(month) %>%
+  summarise(temp = mean(TEMP),rain = mean(PRCP))
 
-precip_data %>%
-  ggplot(aes(date,precip)) + geom_col() +
-  scale_y_continuous(limits = c(0,2))
+weather_by_month %>%
+  ggplot(aes(month,temp)) + geom_col()
+
+wq_data %>%
+  filter(bacteria < 200) %>%
+  group_by(month) %>%
+  ggplot(aes(as.factor(month),bacteria,group = month)) + geom_boxplot() +
+  geom_line(data=weather_by_month,aes(as.factor(month),temp,group=month))
+
 
