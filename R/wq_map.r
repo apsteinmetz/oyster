@@ -71,8 +71,10 @@ wq_data %>%
       sep = "<br/>",
       paste("<b>",site,"</b>"),
       paste("Sample Time",date ,  sample_time),
-      paste(as.period(abs(high_tide - sample_time),hours),"From High Tide"),
-      paste(bacteria, "Enterococci Colonies")
+      paste(str_remove(as.period(abs(high_tide - sample_time),hours)," 0S"),"From High Tide"),
+      paste(scales::comma(bacteria), "Enterococci Colonies")
     )
   )
 
+
+wq_data$quality %>% unique()
