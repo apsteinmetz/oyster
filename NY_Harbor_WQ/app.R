@@ -9,11 +9,7 @@ print(getwd())
 load("../data/wq_data.rdata")
 load("../data/wq_meta.rdata")
 
-# most recent water quality
 all_dates = unique(wq_data$date)
-obs_date = max(wq_data_select$date)
-
-
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -44,6 +40,11 @@ ui <- fluidPage(
 closest_val <- function(vec,val){
   vec[which.min(abs(vec-val))]
 }
+
+# Create a palette that maps factor levels to colors
+pal <- colorFactor(palette = c("grey","green","yellow","red"),
+                   levels =  levels(wq_data$quality))
+
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
