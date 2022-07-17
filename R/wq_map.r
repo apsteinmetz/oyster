@@ -7,9 +7,7 @@ library(leaflet)
 
 load("data/wq_data.rdata")
 load("data/wq_meta.rdata")
-
-wq_meta_sf <- wq_meta %>% st_as_sf(coords = c("longitude", "latitude"),
-                             crs = 4326)
+load("data/weather.rdata")
 
 wq_data_summary <- wq_data %>%
   select(-contains("precip")) %>%
@@ -33,6 +31,8 @@ pal <- colorFactor(palette = c("grey","green","yellow","red"),
 
 
 # median water quality- entire history
+
+
 leaflet::leaflet(wq_meta_select) %>%
   fitBounds(-74.270325,40.490826,-73.668823,40.960197) %>%
   addTiles() %>%
@@ -48,7 +48,7 @@ leaflet::leaflet(wq_meta_select) %>%
 
 # most recent water quality
 all_dates = unique(wq_data$date)
-obs_date = max(wq_data_select$date)
+obs_date = max(wq_data$date)
 #obs_date = all_dates[140]
 
 wq_data %>%
@@ -76,5 +76,16 @@ wq_data %>%
     )
   )
 
+weather %>%
+  filter(date > obs_date-8) %>%
+  filter(date <  obs_date-1) %>%
+  ggplot() +
+  geom_line(aes(date,TEMP),fill = "yellow")
 
-wq_data$quality %>% unique()
+
+weather %>%
+  filter(date > obs_date-8) %>%
+  filter(date <  obs_date-1) %>%
+  ggplot() +
+  geom_col(aes(date,PRCP),fill="blue")
+
