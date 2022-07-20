@@ -16,9 +16,10 @@ all_dates = unique(wq_data$date)
 weather <- weather %>%
   mutate(rain_7D = roll_sum(PRCP, 7, fill = NA, align = "right"))  %>%
   filter(date %in% all_dates) %>%
-  mutate(temp_color = cut(TEMP, 5, labels = c(
-    "blue", "lightblue", "green", "yellow", "red"
-  ))) %>%
+  mutate(temp_color = cut(TEMP, 5,
+                          # labels =  c("blue", "lightblue", "green", "yellow", "red"
+                          labels = colorRampPalette(c("darkblue", "yellow","tomato"))(5)
+                          )) %>%
   mutate(rain_color = cut(rain_7D, 5, labels = colorRampPalette(c(
     "lightskyblue", "darkblue"
   ))(5)))
@@ -31,24 +32,32 @@ ui <- fluidPage(responsive = FALSE,
                   12,
                   # Application title
                   titlePanel("NYC Harbor Bacteria Levels"),
-                  fluidRow(column(3, textOutput("next_date"))),
                   fluidRow(
-                    column(
-                      3,
+                    column(3,
                       sliderInput(
-                        "date",
-                        "Dates:",
-                        min = min(all_dates),
-                        max = max(all_dates),
-                        value = min(all_dates),
+                        "date_index",
+                        "Observation Number",
+                        min = 1,
+                        max = length(all_dates),
+                        value = 1,
+                        step = 1,
+                        # using dates for slider is awkward becuase of
+                        # large, irregular gaps in observations
+                        # "date",
+                        # "Dates:",
+                        # min = min(all_dates),
+                        # max = max(all_dates),
+                        # value = min(all_dates),
+                        # step = 7,
                         animate = animationOptions(
                           interval = 100,
                           loop = FALSE,
                           playButton = NULL,
                           pauseButton = NULL
-                        ),
-                        step = 7
+                        )
                       ),
+                      HTML("<b>Observation Date</b>"),
+                      textOutput("next_date"),
                       fluidRow(column(4,
                                       plotOutput("tempPlot")),
                                column(4,
@@ -56,7 +65,7 @@ ui <- fluidPage(responsive = FALSE,
                       fluidRow(column(12, "Temp.(F) and 7-Day Rainfall (in)"))
                     ),
                     column(width = 9,
-                           leafletOutput("wqPlot"))
+                           leafletOutput("wqPlot",height = "90vh"))
                   )
                 )))
 
@@ -75,7 +84,8 @@ pal <- colorFactor(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
   new_date <- reactive({
-    closest_val(all_dates, input$date)
+    all_dates[input$date_index]
+    #    closest_val(all_dates, input$date)
   })
 
   output$next_date <- renderText({
@@ -84,7 +94,8 @@ server <- function(input, output) {
 
   new_weather <- reactive({
     weather %>%
-      filter(date == closest_val(all_dates, input$date))
+      filter(date == all_dates[input$date_index])
+#    filter(date == closest_val(all_dates, input$date))
   })
 
   output$tempPlot <- renderPlot({
@@ -92,6 +103,8 @@ server <- function(input, output) {
     weather_1d %>%
       ggplot(aes(date, TEMP)) + geom_col(fill = weather_1d$temp_color) +
       theme(legend.position = "none") +
+      theme(axis.text.x = element_blank()) +
+      labs(x = "") +
       scale_y_continuous(limits = c(0, 100))
   })
 
@@ -100,6 +113,8 @@ server <- function(input, output) {
     weather_1d %>%
       ggplot(aes(date, rain_7D)) + geom_col(fill = weather_1d$rain_color) +
       theme(legend.position = "none") +
+      theme(axis.text.x = element_blank()) +
+      labs(x = "") +
       scale_y_continuous(limits = c(0, max_rain))
   })
 
@@ -110,7 +125,8 @@ server <- function(input, output) {
   })
 
   observe({
-    next_date <- closest_val(all_dates, input$date)
+    next_date <- all_dates[input$date_index]
+    #    next_date <- closest_val(all_dates, input$date)
     filtered_data <- wq_data %>%
       filter(date == next_date) %>%
       left_join(wq_meta, by = "site") %>%
@@ -134,11 +150,9 @@ server <- function(input, output) {
           paste(str_remove(as.period(
             abs(high_tide - sample_time), hours
           ), " 0S"), "From High Tide"),
-          paste(scales::comma(bacteria), "Enterococci Colonies")
+          paste(scales::comma(round(bacteria)), "Enterococci Colonies")
         )
       )
-
-
   })
 }
 
