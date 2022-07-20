@@ -1,6 +1,7 @@
 # Billion Oyster Project EDA
 
 library(tidyverse)
+library(RcppRoll)
 library(googlesheets4)
 library(lubridate)
 library(rnoaa)
@@ -58,6 +59,11 @@ wq_data <- wq_data %>%
 save(wq_data,file="data/wq_data.rdata")
 save(wq_meta,file="data/wq_meta.rdata")
 
+
+load("data/wq_data.rdata")
+load("data/wq_meta.rdata")
+load("data/weather.rdata")
+
 # precip_data <- wq_data %>%
 #   select(date,starts_with("precip")) %>%
 #   unique() %>%
@@ -101,5 +107,33 @@ wq_data %>%
   group_by(month) %>%
   ggplot(aes(as.factor(month),bacteria,group = month)) + geom_boxplot() +
   geom_line(data=weather_by_month,aes(as.factor(month),temp,group=month))
+
+
+closest_val <- function(vec,val){
+  vec[which.min(abs(vec-val))]
+}
+
+all_dates <- wq_data$date %>% unique()
+weather <- weather %>%
+  mutate(rain_7D = roll_sum(PRCP, 7, fill = NA, align = "right"))  %>%
+  filter(date %in% all_dates) %>%
+  mutate(temp_color = cut(TEMP,5,labels = c("blue","lightblue","green","yellow","red"))) %>%
+  mutate(rain_color = cut(rain_7D,5,labels = colorRampPalette(c("blue", "red"))( 5 ))
+)
+
+max_rain <- max(weather$rain_7D,na.rm = T)
+
+weather_1d <- weather %>%
+  filter(date == closest_val(all_dates, sample(all_dates, 1)))
+temp_color_1d <- weather_1d$temp_color
+rain_color_1d <- weather_1d$rain_color
+
+weather_1d %>%
+  ggplot(aes(date,rain_7D)) + geom_col(fill = rain_color_1d) +
+  scale_y_continuous(limits = c(0,2))
+
+weather_1d %>%
+  ggplot(aes(date,TEMP)) + geom_col(fill=temp_color_1d) +
+  scale_y_continuous(limits =c(0,100))
 
 
