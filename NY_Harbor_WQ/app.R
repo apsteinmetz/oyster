@@ -1,12 +1,12 @@
 
 
 library(shiny)
+library(shinythemes)
+library(shinyWidgets)
 library(tidyverse)
 library(lubridate)
 library(leaflet)
 library(RcppRoll)
-
-print(getwd())
 
 load("../data/wq_data.rdata")
 load("../data/wq_meta.rdata")
@@ -26,17 +26,27 @@ weather <- weather %>%
 
 max_rain <- max(weather$rain_7D, na.rm = T)
 
-# Define UI for application that draws a histogram
-ui <- fluidPage(responsive = FALSE,
-                fluidRow(column(
-                  12,
+
+# Define UI
+oyster_theme <- bs_theme(
+       bg = "#0b3d91", fg = "white", primary = "#FCC780",
+       base_font = font_google("Roboto Condensed"),
+       code_font = font_google("Roboto Condensed")
+  )
+
+ui <- fluidPage(theme = oyster_theme,
                   # Application title
-                  titlePanel("NYC Harbor Bacteria Levels"),
+                  fluidRow(column(3,
+                                  img(src = 'bop_logo.png', align = "left")),
+                  column(9,
+                         h3("NYC Harbor Enterococci Levels"))),
                   fluidRow(
-                    column(3,
+                    column(
+                      3,
+                      br(),
                       sliderInput(
                         "date_index",
-                        "Observation Number",
+                        HTML("<b>Observation Number</b>"),
                         min = 1,
                         max = length(all_dates),
                         value = 1,
@@ -50,7 +60,7 @@ ui <- fluidPage(responsive = FALSE,
                         # value = min(all_dates),
                         # step = 7,
                         animate = animationOptions(
-                          interval = 100,
+                          interval = 200,
                           loop = FALSE,
                           playButton = NULL,
                           pauseButton = NULL
@@ -58,16 +68,20 @@ ui <- fluidPage(responsive = FALSE,
                       ),
                       HTML("<b>Observation Date</b>"),
                       textOutput("next_date"),
+                      HTML("<b>Weather Gauges</b>"),
                       fluidRow(column(4,
                                       plotOutput("tempPlot")),
                                column(4,
                                       plotOutput("rainPlot"))),
-                      fluidRow(column(12, "Temp.(F) and 7-Day Rainfall (in)"))
+                      fluidRow(column(12, "Temp.(F) and 7-Day Rainfall (in)")),
+                      HTML("<br>"),
+                      fluidRow(column(12, HTML("<i>Source: Citizens Water Quality Testing Program, NOAA</i>"))),
+                      fluidRow(column(12, HTML("<i>https://www.nycwatertrail.org/water_quality.html</i>")))
                     ),
                     column(width = 9,
-                           leafletOutput("wqPlot",height = "90vh"))
+                           leafletOutput("wqPlot", height = "90vh"))
                   )
-                )))
+                )
 
 
 closest_val <- function(vec, val) {
