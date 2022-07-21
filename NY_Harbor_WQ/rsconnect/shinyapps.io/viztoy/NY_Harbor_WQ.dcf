@@ -1,0 +1,13 @@
+name: NY_Harbor_WQ
+title: NY_Harbor_WQ
+username:
+account: viztoy
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6671070
+bundleId: 6117571
+url: https://viztoy.shinyapps.io/NY_Harbor_WQ/
+when: 1658362717.90415
+lastSyncTime: 1658362717.90415
+asMultiple: FALSE
+asStatic: FALSE

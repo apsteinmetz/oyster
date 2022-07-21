@@ -1,16 +1,18 @@
-
+# NY Water Quality over Time
 
 library(shiny)
-library(shinythemes)
 library(shinyWidgets)
-library(tidyverse)
+library(bslib)
+library(dplyr)
+library(stringr)
+library(ggplot2)
 library(lubridate)
 library(leaflet)
 library(RcppRoll)
 
-load("../data/wq_data.rdata")
-load("../data/wq_meta.rdata")
-load("../data/weather.rdata")
+load("www/wq_data.rdata")
+load("www/wq_meta.rdata")
+load("www/weather.rdata")
 
 all_dates = unique(wq_data$date)
 weather <- weather %>%
@@ -26,6 +28,15 @@ weather <- weather %>%
 
 max_rain <- max(weather$rain_7D, na.rm = T)
 
+closest_val <- function(vec, val) {
+  vec[which.min(abs(vec - val))]
+}
+
+# Create a palette that maps factor levels to colors
+pal <- colorFactor(
+  palette = c("grey", "green", "yellow", "red"),
+  levels =  levels(wq_data$quality)
+)
 
 # Define UI
 oyster_theme <- bs_theme(
@@ -37,7 +48,8 @@ oyster_theme <- bs_theme(
 ui <- fluidPage(theme = oyster_theme,
                   # Application title
                   fluidRow(column(3,
-                                  img(src = 'bop_logo.png', align = "left")),
+                                  img(src = 'bop_logo.png', align = "left"),
+                                  "Demo Only. Not sanctioned by BOP"),
                   column(9,
                          h3("NYC Harbor Enterococci Levels"))),
                   fluidRow(
@@ -60,7 +72,7 @@ ui <- fluidPage(theme = oyster_theme,
                         # value = min(all_dates),
                         # step = 7,
                         animate = animationOptions(
-                          interval = 200,
+                          interval = 300,
                           loop = FALSE,
                           playButton = NULL,
                           pauseButton = NULL
@@ -76,7 +88,9 @@ ui <- fluidPage(theme = oyster_theme,
                       fluidRow(column(12, "Temp.(F) and 7-Day Rainfall (in)")),
                       HTML("<br>"),
                       fluidRow(column(12, HTML("<i>Source: Citizens Water Quality Testing Program, NOAA</i>"))),
-                      fluidRow(column(12, HTML("<i>https://www.nycwatertrail.org/water_quality.html</i>")))
+                      fluidRow(column(12, HTML("<i>https://www.nycwatertrail.org/water_quality.html</i>"))),
+                      HTML("<br>"),
+                      fluidRow(column(12, HTML("Built by Art Steinmetz using Shiny from RStudio")))
                     ),
                     column(width = 9,
                            leafletOutput("wqPlot", height = "90vh"))
@@ -84,18 +98,7 @@ ui <- fluidPage(theme = oyster_theme,
                 )
 
 
-closest_val <- function(vec, val) {
-  vec[which.min(abs(vec - val))]
-}
-
-# Create a palette that maps factor levels to colors
-pal <- colorFactor(
-  palette = c("grey", "green", "yellow", "red"),
-  levels =  levels(wq_data$quality)
-)
-
-
-# Define server logic required to draw a histogram
+# Define server logic
 server <- function(input, output) {
   new_date <- reactive({
     all_dates[input$date_index]
