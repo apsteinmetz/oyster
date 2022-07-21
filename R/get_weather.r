@@ -6,7 +6,10 @@ library(rnoaa)
 
 #assumes NOAA_KEY is in .renvir
 
-years = 2011:2022
+# get just an update or full history?
+UPDATE <- TRUE
+
+years = 2011:2022 # not relevant with update=TRUE
 datatypeids <- c("TMIN","TMAX","PRCP")
 
 ncdc_datasets(stationid = "GHCND:USW00014732")
@@ -15,11 +18,11 @@ ncdc_datasets(stationid = "GHCND:USW00014732")
 get_weather <-  function(station = "USW00014732",
                          startdate = Sys.Date() - 365,
                          enddate = Sys.Date() - 1,
-                         datatypid = "TMAX") {
+                         datatypeid = "TMAX") {
   weather <- ncdc(
     datasetid = 'GHCND',
     stationid = paste0("GHCND:", station),
-    datatypeid=datatypid,
+    datatypeid=datatypeid,
     startdate = startdate,
     enddate = enddate,
     limit = 1000,
@@ -51,12 +54,6 @@ noaa_datatypes <- ncdc_datatypes(datasetid = "GHCND",
                                  stationid = "GHCND:USW00094728",
                                  limit = 200)$data %>% as_tibble()
 
-test <-function(year=1900,datatypeid="bbb"){
-  return(tibble(year=seq(year,year+10),dataid = datatypeid))
-}
-
-years = 2011:2022
-datatypeids <- c("TMIN","TMAX","PRCP")
 
 if (!file.exists("data/weather_raw.rdata")){
   # grab vector of data types and years from NOAA weather data
@@ -76,15 +73,28 @@ mm_to_in <- function(len) {
   return(len*.039)
 }
 
-weather <- weather_raw %>%
-  transmute(date = as.Date(date),
-            station = "LGA",
-            datatype,
-            value) %>%
-  pivot_wider(names_from = "datatype",
-              values_from = "value") %>%
-  transmute(date,station,
-            TEMP = c_to_f((TMIN+TMAX)/20),
-            PRCP=mm_to_in(PRCP/100))
+fix_raw_weather <- function(weather_raw) {
+  weather_raw %>%
+    transmute(date = as.Date(date),
+              station = "LGA",
+              datatype,
+              value) %>%
+    pivot_wider(names_from = "datatype",
+                values_from = "value") %>%
+    transmute(date,
+              station,
+              TEMP = c_to_f((TMIN + TMAX) / 20),
+              PRCP = mm_to_in(PRCP / 100))
+}
+
+weather <- fix_raw_weather(weather_raw)
+
+if (UPDATE){
+  start_date <- max(weather$date) + 1
+  weather_update_raw <- map_dfr(datatypeids,
+                         function(d) get_weather(datatypeid = d,startdate = start_date))
+  weather_update <- fix_raw_weather(weather_update_raw)
+  weather <- bind_rows(weather,weather_update) %>% unique()
+}
 
 save(weather,file="data/weather.rdata")
