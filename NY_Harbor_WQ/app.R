@@ -57,20 +57,20 @@ ui <- fluidPage(theme = oyster_theme,
                       3,
                       br(),
                       sliderInput(
-                        "date_index",
-                        HTML("<b>Observation Number</b>"),
-                        min = 1,
-                        max = length(all_dates),
-                        value = 1,
-                        step = 1,
+                        # "date_index",
+                        # HTML("<b>Observation Number</b>"),
+                        # min = 1,
+                        # max = length(all_dates),
+                        # value = 1,
+                        # step = 1,
                         # using dates for slider is awkward becuase of
                         # large, irregular gaps in observations
-                        # "date",
-                        # "Dates:",
-                        # min = min(all_dates),
-                        # max = max(all_dates),
-                        # value = min(all_dates),
-                        # step = 7,
+                        "date",
+                        HTML("<b>Dates</b>"),
+                        min = min(all_dates),
+                        max = max(all_dates),
+                        value = min(all_dates),
+                        step = 7,
                         animate = animationOptions(
                           interval = 300,
                           loop = FALSE,
@@ -78,7 +78,7 @@ ui <- fluidPage(theme = oyster_theme,
                           pauseButton = NULL
                         )
                       ),
-                      HTML("<b>Observation Date</b>"),
+                      HTML("<b>Nearest Observation Date</b>"),
                       textOutput("next_date"),
                       HTML("<b>Weather Gauges</b>"),
                       fluidRow(column(4,
@@ -101,8 +101,8 @@ ui <- fluidPage(theme = oyster_theme,
 # Define server logic
 server <- function(input, output) {
   new_date <- reactive({
-    all_dates[input$date_index]
-    #    closest_val(all_dates, input$date)
+    # all_dates[input$date_index]
+        closest_val(all_dates, input$date)
   })
 
   output$next_date <- renderText({
@@ -111,8 +111,8 @@ server <- function(input, output) {
 
   new_weather <- reactive({
     weather %>%
-      filter(date == all_dates[input$date_index])
-#    filter(date == closest_val(all_dates, input$date))
+    # filter(date == all_dates[input$date_index])
+    filter(date == closest_val(all_dates, input$date))
   })
 
   output$tempPlot <- renderPlot({
@@ -142,8 +142,8 @@ server <- function(input, output) {
   })
 
   observe({
-    next_date <- all_dates[input$date_index]
-    #    next_date <- closest_val(all_dates, input$date)
+    #next_date <- all_dates[input$date_index]
+    next_date <- closest_val(all_dates, input$date)
     filtered_data <- wq_data %>%
       filter(date == next_date) %>%
       left_join(wq_meta, by = "site") %>%
