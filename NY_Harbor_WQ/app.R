@@ -57,28 +57,20 @@ ui <- fluidPage(theme = oyster_theme,
                       3,
                       br(),
                       sliderInput(
-                        # "date_index",
-                        # HTML("<b>Observation Number</b>"),
-                        # min = 1,
-                        # max = length(all_dates),
-                        # value = 1,
-                        # step = 1,
-                        # using dates for slider is awkward becuase of
-                        # large, irregular gaps in observations
                         "date",
                         HTML("<b>Dates</b>"),
                         min = min(all_dates),
                         max = max(all_dates),
                         value = min(all_dates),
-                        step = 7,
+                        step = 1,
                         animate = animationOptions(
-                          interval = 300,
+                          interval = 1000,
                           loop = FALSE,
                           playButton = NULL,
                           pauseButton = NULL
                         )
                       ),
-                      HTML("<b>Nearest Observation Date</b>"),
+                      HTML("<b>Observation Date</b>"),
                       textOutput("next_date"),
                       HTML("<b>Weather Gauges</b>"),
                       fluidRow(column(4,
@@ -99,24 +91,25 @@ ui <- fluidPage(theme = oyster_theme,
 
 
 # Define server logic
-server <- function(input, output) {
+server <- function(input, output, session) {
+  observe({
+    req(input$date)
+    updateSliderInput(session, "date",
+                      value = min(all_dates[which(input$date <= all_dates)]))  })
+
   new_date <- reactive({
-    # all_dates[input$date_index]
-        closest_val(all_dates, input$date)
+    min(all_dates[which(input$date <= all_dates)])
   })
 
   output$next_date <- renderText({
-    format.Date(new_date())
-  })
+    #   format.Date(new_date())
+       format.Date(input$date)
 
-  new_weather <- reactive({
-    weather %>%
-    # filter(date == all_dates[input$date_index])
-    filter(date == closest_val(all_dates, input$date))
-  })
+   })
 
   output$tempPlot <- renderPlot({
-    weather_1d <- new_weather()
+    weather_1d <- weather %>%
+      filter(date == input$date)
     weather_1d %>%
       ggplot(aes(date, TEMP)) + geom_col(fill = weather_1d$temp_color) +
       theme(legend.position = "none") +
@@ -126,7 +119,8 @@ server <- function(input, output) {
   })
 
   output$rainPlot <- renderPlot({
-    weather_1d <- new_weather()
+    weather_1d <- weather %>%
+      filter(date == input$date)
     weather_1d %>%
       ggplot(aes(date, rain_7D)) + geom_col(fill = weather_1d$rain_color) +
       theme(legend.position = "none") +
@@ -142,13 +136,10 @@ server <- function(input, output) {
   })
 
   observe({
-    #next_date <- all_dates[input$date_index]
-    next_date <- closest_val(all_dates, input$date)
     filtered_data <- wq_data %>%
-      filter(date == next_date) %>%
+      filter(date == new_date()) %>%
       left_join(wq_meta, by = "site") %>%
       filter(!is.na(latitude))
-
     leafletProxy("wqPlot", data = filtered_data) %>%
       clearShapes() %>%
       addCircles(
