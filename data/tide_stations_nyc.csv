@@ -1,0 +1,156 @@
+area,Name,Id,Lat,Lon,Predictions
+"Long Island Sound, north side",Rye Beach,8518091,40.9617,-73.6717,Harmonic
+"Long Island Sound, north side",New Rochelle,8518490,40.8933,-73.7817,Subordinate
+"Long Island Sound, north side","Throgs Neck, Fort Schuyler",8518526,40.805,-73.795,Harmonic
+East River,Whitestone,8517125,40.7983,-73.8133,Subordinate
+East River,"College Point, Flushing Bay",8517276,40.7833,-73.8567,Subordinate
+East River,"Worlds Fair Marina, Flushing Bay",8517251,40.761,-73.8504,Harmonic
+East River,Hunts Point,8518621,40.8,-73.8733,Subordinate
+East River,North Brother Island,8518635,40.7983,-73.8983,Subordinate
+East River,Port Morris (Stony Point),8518639,40.8017,-73.9067,Harmonic
+East River,"Hell Gate, Wards Island",8517401,40.7867,-73.9217,Subordinate
+East River,"Horns Hook, East 90th Street",8518668,40.7767,-73.9417,Harmonic
+East River,Queensboro Bridge,8518687,40.7583,-73.9583,Harmonic
+East River,"East 41st Street, New York City",8518695,40.7467,-73.9683,Subordinate
+East River,"Hunters Point, Newtown Creek",8517673,40.74,-73.9617,Subordinate
+East River,Williamsburg Bridge,8518699,40.7117,-73.9683,Harmonic
+East River,"Wallabout Bay, Brooklyn Navy Yard",8517732,40.7067,-73.975,Subordinate
+East River,Brooklyn Bridge,8517847,40.7033,-73.995,Harmonic
+East River,"Harlem River, Randalls Island",8518643,40.8,-73.9283,Harmonic
+"Long Island, Long Island Sound",Willets Point,8516990,40.7933,-73.7817,Harmonic
+"Long Island, Long Island Sound",Kings Point,8516945,40.8103,-73.7649,Harmonic
+"Long Island, Long Island Sound","Port Washington, Manhasset Bay",8516761,40.8317,-73.7033,Harmonic
+"Long Island, Long Island Sound","Harry Tappen Marina, Hempstead Harbor",8516607,40.8346,-73.6524,Harmonic
+"Long Island, Long Island Sound","Glen Cove, Hempstead Harbor",8516614,40.8633,-73.655,Harmonic
+Oyster Bay,Oyster Bay Harbor,8516201,40.8667,-73.5167,Subordinate
+Oyster Bay,Bayville Bridge,8516299,40.9033,-73.55,Harmonic
+Oyster Bay,Cold Spring Harbor,8516061,40.8733,-73.47,Harmonic
+Oyster Bay,Eatons Neck Point,8515786,40.9533,-73.4,Harmonic
+Oyster Bay,"Lloyd Harbor, Huntington Bay",8515921,40.91,-73.4317,Harmonic
+Oyster Bay,"Northport, Northport Bay",8515586,40.9,-73.3533,Harmonic
+Oyster Bay,Port Jefferson Harbor entrance,8514594,40.9717,-73.0917,Subordinate
+Oyster Bay,Port Jefferson,8514560,40.95,-73.0767,Harmonic
+Oyster Bay,Cedar Beach,8514422,40.965,-73.0433,Harmonic
+Oyster Bay,Mount Sinai Harbor,8514421,40.9633,-73.04,Subordinate
+Oyster Bay,Northville,8512987,40.9817,-72.645,Harmonic
+Oyster Bay,Mattituck Inlet,8512668,41.015,-72.5617,Harmonic
+Oyster Bay,Hashamomuck Beach,8512053,41.095,-72.3983,Subordinate
+Oyster Bay,Little Gull Island,8510884,41.2067,-72.1017,Subordinate
+Oyster Bay,"Plum Gut Harbor, Plum Island",8511236,41.1717,-72.205,Harmonic
+Shelter Island Sound,Orient,8511671,41.1367,-72.3067,Harmonic
+Shelter Island Sound,Greenport,8511907,41.101,-72.3612,Harmonic
+Shelter Island Sound,Southold,8512114,41.06,-72.4133,Subordinate
+Shelter Island Sound,Noyack Bay,8511779,40.995,-72.3317,Subordinate
+Shelter Island Sound,Sag Harbor,8511629,41.0033,-72.2967,Harmonic
+Peconic Bays,New Suffolk,8512328,40.9917,-72.4717,Subordinate
+Peconic Bays,South Jamesport,8512735,40.935,-72.5817,Harmonic
+Peconic Bays,"Threemile Harbor entrance, Gardiners Bay",8511171,41.035,-72.19,Subordinate
+Peconic Bays,Lake Montauk,8510448,41.0733,-71.935,Harmonic
+Peconic Bays,Montauk Harbor entrance,8510502,41.075,-71.9367,Subordinate
+Peconic Bays,"Montauk, Fort Pond Bay",8510560,41.0483,-71.9594,Harmonic
+Shinnecock Bay,Shinnecock Bay entrance,8512671,40.82,-72.5617,Subordinate
+Shinnecock Bay,Ponquoque Point,8512451,40.85,-72.5033,Harmonic
+Shinnecock Bay,"Shinnecock Yacht Club, Penniman Creek",8512769,40.818600000000004,-72.5866,Harmonic
+Shinnecock Bay,Shinnecock Inlet (ocean),8512354,40.8367,-72.48,Harmonic
+Shinnecock Bay,Moriches Inlet,8513398,40.7644,-72.756,Harmonic
+Shinnecock Bay,Moriches Coast Guard Station,8513388,40.7867,-72.75,Harmonic
+Shinnecock Bay,"Smith Point Bridge, Narrow Bay",8513825,40.7383,-72.8683,Harmonic
+Shinnecock Bay,"Democrat Point, Fire Island Inlet",8515228,40.6333,-73.2933,Subordinate
+Great South Bay,Fire Island Coast Guard Station,8515186,40.6267,-73.26,Harmonic
+Great South Bay,Fire Island Light,8515014,40.635,-73.22,Subordinate
+Great South Bay,Seaview Ferry Dock,8514779,40.6493,-73.1506,Harmonic
+Great South Bay,West Fire Island,8514961,40.6567,-73.205,Subordinate
+Great South Bay,Patchogue,8514322,40.75,-73,Harmonic
+Great South Bay,"Great River, Connetquot River",8514783,40.7233,-73.1517,Subordinate
+Great South Bay,"Bay Shore, Watchogue Creek Entrance",8515102,40.7167,-73.24,Subordinate
+Great South Bay,Oak Beach,8515336,40.64,-73.295,Subordinate
+Great South Bay,Babylon,8515421,40.685,-73.315,Subordinate
+Great South Bay,Gilgo Heading,8515764,40.62,-73.395,Subordinate
+Great South Bay,Amityville,8515864,40.655,-73.4183,Subordinate
+Great South Bay,"Biltmore Shores, South Oyster Bay",8516055,40.6667,-73.4683,Subordinate
+Great South Bay,Jones Inlet (Point Lookout),8516385,40.5867,-73.5783,Subordinate
+Great South Bay,"Point Lookout (marina), Jones Inlet",8516402,40.5939,-73.584,Harmonic
+Hempstead Bay,Deep Creek Meadow,8516225,40.6033,-73.525,Subordinate
+Hempstead Bay,Green Island,8516155,40.6233,-73.5017,Harmonic
+Hempstead Bay,Cuba Island,8516221,40.62,-73.5233,Subordinate
+Hempstead Bay,"Bellmore, Bellmore Creek",8516211,40.6633,-73.52,Subordinate
+Hempstead Bay,Neds Creek,8516315,40.6233,-73.555,Subordinate
+Hempstead Bay,"Freeport, Baldwin Bay",8516411,40.6333,-73.5867,Subordinate
+Hempstead Bay,"Baldwin, Parsonage Cove, Hempstead Bay",8516501,40.6333,-73.6167,Harmonic
+Hempstead Bay,Long Beach (Inside),8516601,40.6,-73.65,Subordinate
+Hempstead Bay,"Long Beach, Bridgewater Yacht Club, New York",8516663,40.5963,-73.6551,Harmonic
+Hempstead Bay,"Bay Park, Hewlett Bay",8516661,40.63,-73.67,Harmonic
+Hempstead Bay,"Woodmere, Brosewere Bay",8516745,40.62,-73.6983,Subordinate
+Hempstead Bay,"East Rockaway Inlet, Atlantic Beach",8516881,40.595,-73.7433,Harmonic
+Jamaica Bay,"Kingsborough, Sheepshead Bay",8517756,40.5812,-73.9338,Harmonic
+Jamaica Bay,Plumb Beach Channel,8517531,40.585,-73.925,Subordinate
+Jamaica Bay,"Barren Island, Rockaway Inlet",8517394,40.5783,-73.8883,Subordinate
+Jamaica Bay,Beach Channel (bridge),8517137,40.5883,-73.82,Subordinate
+Jamaica Bay,Motts Basin,8516925,40.6167,-73.7583,Subordinate
+Jamaica Bay,"Norton Point, Head of Bay",8516891,40.635,-73.7467,Harmonic
+Jamaica Bay,J.F.K. International Airport,8516999,40.6233,-73.7833,Subordinate
+Jamaica Bay,"North Channel Bridge, Grassy Bay",8517201,40.645,-73.8367,Harmonic
+Jamaica Bay,Canarsie,8517381,40.63,-73.885,Subordinate
+Jamaica Bay,Mill Basin,8517519,40.6083,-73.9217,Subordinate
+New York Harbor,Coney Island,8517741,40.57,-73.9833,Subordinate
+New York Harbor,"Norton Point, Gravesend Bay",8517811,40.59,-73.9983,Subordinate
+New York Harbor,"Fort Wadsworth, The Narrows",8519024,40.6067,-74.055,Subordinate
+New York Harbor,"Fort Hamilton, The Narrows",8517942,40.6083,-74.035,Subordinate
+New York Harbor,USCG Station NY,8519050,40.612,-74.0599,Harmonic
+New York Harbor,"St. George, Staten Island",8519112,40.6433,-74.0733,Subordinate
+New York Harbor,Gowanus Bay,8517921,40.665,-74.0133,Subordinate
+New York Harbor,NEW YORK (The Battery),8518750,40.7006,-74.0142,Harmonic
+Hudson River,"Weehawken, Union City, N.J.",8530645,40.765,-74.0183,Subordinate
+Hudson River,"Edgewater, N.J.",8530505,40.8133,-73.9783,Subordinate
+Hudson River,"Dyckman Street, Ferry Slip",8518902,40.8683,-73.9333,Harmonic
+Hudson River,"Spuyten Duyvil Creek ent., N.Y.",8518903,40.8783,-73.925,Subordinate
+Hudson River,"Riverdale, N.Y.",8518905,40.9033,-73.9167,Subordinate
+Hudson River,"Alpine, N.J.",8530095,40.945,-73.9183,Subordinate
+Hudson River,Tarrytown,8518919,41.0783,-73.87,Subordinate
+Hudson River,Haverstraw,8518924,41.2183,-73.9633,Harmonic
+Hudson River,Peekskill,8518949,41.2883,-73.9317,Subordinate
+Hudson River,Newburgh,8518935,41.5,-74.0067,Subordinate
+Hudson River,"Beacon, Flushkill",8518934,41.5,-73.9833,Harmonic
+Hudson River,New Hamburg,8518939,41.5833,-73.95,Subordinate
+Hudson River,Poughkeepsie,8518945,41.7,-73.9333,Subordinate
+Hudson River,Hyde Park,8518951,41.7833,-73.95,Harmonic
+Hudson River,Kingston,8518993,41.9183,-73.9833,Subordinate
+Hudson River,"TURKEY POINT, HUDSON RIVER",8518962,42.0139,-73.9392,Harmonic
+Hudson River,Tivoli,8518964,42.0583,-73.9167,Subordinate
+Hudson River,Hudson,8518974,42.25,-73.8,Subordinate
+Hudson River,Castleton,8518989,42.5333,-73.7667,Subordinate
+Hudson River,ALBANY,8518995,42.65,-73.7467,Harmonic
+Hudson River,Troy,TEC1603,42.7167,-73.7,Subordinate
+Kill Van Kull,Constable Hook,8530985,40.655,-74.085,Subordinate
+Kill Van Kull,"Bayonne Bridge, Bergen Point",8519483,40.6391,-74.1463,Harmonic
+Kill Van Kull,Port Elizabeth,8530882,40.6733,-74.14,Subordinate
+Kill Van Kull,Port Newark Terminal,8530884,40.69,-74.1333,Subordinate
+Passaic River,Point No Point,8530743,40.7317,-74.1167,Subordinate
+Passaic River,Belleville,8530591,40.7867,-74.1467,Subordinate
+Passaic River,East Rutherford,8530403,40.8467,-74.12,Subordinate
+Hackensack River,Kearny Point,8530772,40.7283,-74.1033,Subordinate
+Hackensack River,Amtrak RR. swing bridge,8530696,40.7517,-74.0967,Subordinate
+Hackensack River,"Fish Creek, Berrys Creek",8530586,40.7933,-74.0917,Subordinate
+Hackensack River,"Carlstadt, Garretts Reach",8530528,40.8067,-74.06,Subordinate
+Hackensack River,"North Secaucus, Garretts Reach",8530531,40.805,-74.0533,Subordinate
+Hackensack River,Ridgefield Park,8530398,40.85,-74.03,Subordinate
+Hackensack River,Hackensack,8530278,40.88,-74.04,Subordinate
+Hackensack River,New Millford,8530186,40.935,-74.03,Subordinate
+Arthur Kill,"Port Ivory, Howland Hook, N.Y.",8519200,40.645,-74.18,Subordinate
+Arthur Kill,"Rahway River, RR. Bridge",8531077,40.5983,-74.2317,Subordinate
+Arthur Kill,Chelsea,TEC1645,40.6,-74.2,Subordinate
+Arthur Kill,Carteret,8531095,40.5867,-74.21,Subordinate
+Arthur Kill,"Rossville, N.Y.",8519789,40.5567,-74.2233,Subordinate
+Arthur Kill,"Port Reading, Arthur Kill",8531142,40.555,-74.245,Harmonic
+Arthur Kill,"Woodbridge Creek, 0.8 n.mi. above entrance",8531156,40.545,-74.265,Subordinate
+"Lower New York Bay, Raritan Bay, etc.",Great Kills Harbor,8519436,40.5433,-74.14,Harmonic
+"Lower New York Bay, Raritan Bay, etc.",Princes Bay,8519726,40.5117,-74.2,Subordinate
+Raritan River,South Amboy,8531232,40.4917,-74.2817,Subordinate
+Raritan River,Keasbey,8531262,40.5083,-74.3117,Harmonic
+Raritan River,Sayreville,8531390,40.4783,-74.3567,Harmonic
+Raritan River,"Old Bridge, South River",8531369,40.4167,-74.3633,Harmonic
+Raritan River,New Brunswick,8531463,40.4883,-74.435,Harmonic
+Raritan River,"Cheesequake Creek, Garden State Parkway",8531223,40.4533,-74.2733,Harmonic
+Raritan River,Keyport,8531545,40.44,-74.1983,Subordinate
+Raritan River,"Matawan Creek, Route 35 bridge",8531526,40.4333,-74.2183,Subordinate
+Raritan River,Waackaack Creek,8531592,40.4483,-74.1433,Subordinate

@@ -1,0 +1,40 @@
+---
+title: "Exploring BOP WQ Data"
+author: "Art Steinmetz"
+format: pdf
+---
+
+## Predicting Enterococci Levels in NYC Harbor
+
+This document explores the relationship between weather, tides and water quality in the NYC Harbor. The data sources are the Billion Oyster Project (BOP), the Citizens' Water Quality Testing Program and the NOAA.
+
+In preview, I am not optimistic about the ability to predict Enterococci levels in the NYC Harbor with the available data. The data is noisy and the relationship between weather, tides and water quality weak. My suspicion is that individual sites are affected more by point sources of contaminants than by the variables we can easily measure.
+
+## Data
+
+The main data source is the BOP water quality spreadsheet found here: [BOP Water Quality Data](https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?gid=1924583806#gid=1924583806) I also used the NOAA data site for tide, temperature and rainfall data.
+
+## Feature Engineering
+
+The BOP data includes time of last high tide. I thought I could get more granular by imputing the direction and strength of the tidal current at the time of the water sample. I used the NOAA tide data to find the previous slack tide time and level, then the next slack tide time and level. By determining where in the tide phase the sample was taken and the total change in water level for that phase, I impute the direction and strength of the tidal current when the sample was taken using this formula:
+
+# markdown formula
+
+CurrentSpeed = TideHighLowRange \* \sin(\pi \* HoursSinceLastTide / TideDurationHrs)
+
+I chose to use just the weekly total rainfall and the one-day rainfall amounts. Obviously, we don't know if the more of 1-day rain fell before or after the sample was taken.
+
+The BOP data does not include temperature. I used the NOAA Central Park temperature for each sample day as a data feature. This is a (not very good) proxy for the water temperature but also for seasonality. Consequently, I don't use dates as a data feature.
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
