@@ -6,7 +6,7 @@ datasets <- c("wq_data", "wq_meta", "weather")
 copy_to_shiny <- function(name) {
   dframe <- arrow::read_parquet(paste0("data/",name,".parquet"))
   # dframe = eval(parse(text = name))
-  fname = paste0("NY_Harbor_WQ/www/", name, ".csv")
+  fname = paste0("NY_Harbor_WQ_shiny_demo/www/", name, ".csv")
   arrow::write_csv_arrow(dframe, fname)
 }
 
