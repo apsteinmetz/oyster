@@ -113,6 +113,35 @@ dep_station_names <- dep_station_names |>
   separate(Station,into = c("station_id","station_name"),sep = " ",extra = "merge")
 
 
+# clean up current speed and direction.
+# convert speed to numeric and direction to compass point
+
+# vector of 16 compass points
+compass_points <- c("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW")
+
+wq_data_imputed <- wq_data_dep_imputed |>
+  mutate(current_speed_knot = if_else(current_speed_knot %in% compass_points,
+                                      current_direction, current_speed_knot),
+         current_direction = if_else(current_speed_knot %in% compass_points,
+                                      current_speed_knot,current_direction))
+
+|>
+  mutate(current_speed_knot = as.numeric(current_speed_knot)) |>
+  mutate(current_speed_knot = if_else(is.na(current_speed_knot),0,current_speed_knot)) |>
+  # convert current direction is numeric convert to compass point
+  mutate(current_direction = as.numeric(current_direction)) |>
+
+
+# function to parse current direction values to compass points
+parse_current_direction <- function(direction){
+  if(!is.na(as.numeric(direction)){
+    return(compass_point_16(as.numeric(direction)))
+  } else {
+    return(direction)
+  }
+}
+
+
 # function to convert compass degrees to one of 16 compass points
 compass_point_16 <- function(degrees) {
   if (is.na(degrees)) {
