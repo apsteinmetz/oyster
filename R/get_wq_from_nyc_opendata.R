@@ -2,10 +2,78 @@
 library(tidyverse)
 library(lubridate)
 library(RSocrata)
-library(duckdb)
+library(arrow)
 
 # use duckdb for every tidyverse function
-methods_overwrite()
+
+# vector of 16 compass points
+compass_points <- c("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW")
+
+# function to convert compass degrees to one of 16 compass points
+compass_point_16 <- function(degrees) {
+  if (is.na(degrees)) {
+    return(NA)
+  }
+  if (degrees < 11.25) {
+    return("N")
+  }
+  if (degrees < 33.75) {
+    return("NNE")
+  }
+  if (degrees < 56.25) {
+    return("NE")
+  }
+  if (degrees < 78.75) {
+    return("ENE")
+  }
+  if (degrees < 101.25) {
+    return("E")
+  }
+  if (degrees < 123.75) {
+    return("ESE")
+  }
+  if (degrees < 146.25) {
+    return("SE")
+  }
+  if (degrees < 168.75) {
+    return("SSE")
+  }
+  if (degrees < 191.25) {
+    return("S")
+  }
+  if (degrees < 213.75) {
+    return("SSW")
+  }
+  if (degrees < 236.25) {
+    return("SW")
+  }
+  if (degrees < 258.75) {
+    return("WSW")
+  }
+  if (degrees < 281.25) {
+    return("W")
+  }
+  if (degrees < 303.75) {
+    return("WNW")
+  }
+  if (degrees < 326.25) {
+    return("NW")
+  }
+  if (degrees < 348.75) {
+    return("NNW")
+  }
+  return("N")
+}
+
+# function to parse current direction values to compass points
+parse_current_direction <- Vectorize(function(direction){
+  if(!is.na(as.numeric(direction))){
+    return(compass_point_16(as.numeric(direction)))
+  } else {
+    return(direction)
+  }
+})
+
 wq_data_url <- "https://data.cityofnewyork.us/resource/5uug-f49n.json"
 
 # get the data
@@ -80,6 +148,7 @@ missing_data <- wq_data_dep |>
 #  retain intersting columns with not too much missing data
 # in most cases this means keeping sample labeled "top" but not "bottom"
 wq_data_dep_subset <- wq_data_dep |>
+  # filter(year(sample_datetime) > year(Sys.Date()) - 10) |>
   transmute(sampling_location,
             sample_datetime,
             current_direction = current_direction_current_direction,
@@ -96,6 +165,34 @@ wq_data_dep_subset <- wq_data_dep |>
     # we need at least coliform
   drop_na(fecal_coliform_100ml)
 
+
+# clean up current speed and direction.
+# convert speed to numeric and direction to compass point
+wq_data_dep_subset <- wq_data_dep_subset |>
+  # some are swapped
+  mutate(current_speed_knot = if_else(current_speed_knot %in% compass_points,
+                                      current_direction, current_speed_knot),
+         current_direction = if_else(current_speed_knot %in% compass_points,
+                                     current_speed_knot,current_direction)) |>
+  # direction and speed are sometimes in the same column
+  mutate(current_speed_knot = if_else(str_detect(current_direction,"-[0-9\\.]+"),
+                                      str_extract(current_direction,"[0-9\\.]+"),
+                                      current_speed_knot)) |>
+  mutate(current_direction = str_extract(current_direction,"^[A-Za-z]+")) |>
+  mutate(current_direction = toupper(parse_current_direction(current_direction))) |>
+  # weak, ebb, slack and other characters all mean zero speed
+  mutate(current_speed_knot = as.numeric(current_speed_knot)) |>
+  mutate(current_speed_knot = if_else(is.na(current_speed_knot),0,
+                                      current_speed_knot)) |>
+  # change directions not in compass to "unknown"
+  mutate(current_direction =
+           if_else(
+             !(current_direction %in% compass_points), "UNKN",
+                  current_direction
+           ))
+
+
+arrow::write_parquet(wq_data_dep_subset,"data/wq_data_dep_subset.parquet")
 # impute missing values.
 # first group by date and take the mean of each column on that date
 # replace missing values with the mean of the column for that date
@@ -103,97 +200,6 @@ wq_data_dep_subset <- wq_data_dep |>
 wq_data_dep_imputed <- wq_data_dep_subset |>
   mutate(date = as.Date(sample_datetime)) |>
   group_by(date) |>
-  mutate(across(where(is.numeric), ~if_else(is.na(.), mean(., na.rm = TRUE), .)) ) |>
-  ungroup() |>
-  left_join(stations_metadata,by = "sampling_location")
+  mutate(across(where(is.numeric), ~if_else(is.na(.), mean(., na.rm = TRUE), .)))
 
-arrow::write_parquet(wq_data_dep,"data/wq_data_dep.parquet")
-
-dep_station_names <- dep_station_names |>
-  separate(Station,into = c("station_id","station_name"),sep = " ",extra = "merge")
-
-
-# clean up current speed and direction.
-# convert speed to numeric and direction to compass point
-
-# vector of 16 compass points
-compass_points <- c("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW")
-
-wq_data_imputed <- wq_data_dep_imputed |>
-  mutate(current_speed_knot = if_else(current_speed_knot %in% compass_points,
-                                      current_direction, current_speed_knot),
-         current_direction = if_else(current_speed_knot %in% compass_points,
-                                      current_speed_knot,current_direction))
-
-|>
-  mutate(current_speed_knot = as.numeric(current_speed_knot)) |>
-  mutate(current_speed_knot = if_else(is.na(current_speed_knot),0,current_speed_knot)) |>
-  # convert current direction is numeric convert to compass point
-  mutate(current_direction = as.numeric(current_direction)) |>
-
-
-# function to parse current direction values to compass points
-parse_current_direction <- function(direction){
-  if(!is.na(as.numeric(direction)){
-    return(compass_point_16(as.numeric(direction)))
-  } else {
-    return(direction)
-  }
-}
-
-
-# function to convert compass degrees to one of 16 compass points
-compass_point_16 <- function(degrees) {
-  if (is.na(degrees)) {
-    return(NA)
-  }
-  if (degrees < 11.25) {
-    return("N")
-  }
-  if (degrees < 33.75) {
-    return("NNE")
-  }
-  if (degrees < 56.25) {
-    return("NE")
-  }
-  if (degrees < 78.75) {
-    return("ENE")
-  }
-  if (degrees < 101.25) {
-    return("E")
-  }
-  if (degrees < 123.75) {
-    return("ESE")
-  }
-  if (degrees < 146.25) {
-    return("SE")
-  }
-  if (degrees < 168.75) {
-    return("SSE")
-  }
-  if (degrees < 191.25) {
-    return("S")
-  }
-  if (degrees < 213.75) {
-    return("SSW")
-  }
-  if (degrees < 236.25) {
-    return("SW")
-  }
-  if (degrees < 258.75) {
-    return("WSW")
-  }
-  if (degrees < 281.25) {
-    return("W")
-  }
-  if (degrees < 303.75) {
-    return("WNW")
-  }
-  if (degrees < 326.25) {
-    return("NW")
-  }
-  if (degrees < 348.75) {
-    return("NNW")
-  }
-  return("N")
-}
+arrow::write_parquet(wq_data_dep_imputed,"data/wq_data_dep_imputed.parquet")
