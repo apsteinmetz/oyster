@@ -4,7 +4,33 @@ library(lubridate)
 library(RSocrata)
 library(arrow)
 
-# use duckdb for every tidyverse function
+# Which Bacteria Should You Monitor?
+#
+# Which bacteria you test for depends on what you want to know. Do you want to
+# know whether swimming in your stream poses a health risk? Do you want to know
+# whether your stream is meeting state water quality standards?
+#
+# Studies conducted by EPA to determine the correlation between different
+# bacterial indicators and the occurrence of digestive system illness at
+# swimming beaches suggest that the best indicators of health risk from
+# recreational water contact in fresh water are E. coli and enterococci. For
+# salt water, enterococci are the best. Interestingly, fecal coliforms as a
+# group were determined to be a poor indicator of the risk of digestive system
+# illness. However, many states continue to use fecal coliforms as their primary
+# health risk indicator.
+#
+# If your state is still using total or fecal coliforms as the indicator
+# bacteria and you want to know whether the water meets state water quality
+# standards, you should monitor fecal coliforms. However, if you want to know
+# the health risk from recreational water contact, the results of EPA studies
+# suggest that you should consider switching to the E. coli or enterococci
+# method for testing fresh water. In any case, it is best to consult with the
+# water quality division of your state's environmental agency, especially if you
+# expect them to use your data.
+#
+# https://archive.epa.gov/water/archive/web/html/vms511.html
+
+wq_data_url <- "https://data.cityofnewyork.us/resource/5uug-f49n.json"
 
 # vector of 16 compass points
 compass_points <- c("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW")
@@ -74,8 +100,6 @@ parse_current_direction <- Vectorize(function(direction){
   }
 })
 
-wq_data_url <- "https://data.cityofnewyork.us/resource/5uug-f49n.json"
-
 # get the data
 wq_data_dep_raw <- read.socrata(wq_data_url) |>
   as_tibble()
@@ -100,7 +124,7 @@ wq_data_dep <- wq_data_dep_raw %>%
 # set time zone of sampe_datetime to America/New_York
 mutate(sample_datetime = with_tz(sample_datetime,tz = "America/New_York"))
 
-# get station metadata
+# get station metadata ---------------------------------------------------------
 stations_metadata_last <- wq_data_dep |>
   select(sampling_location,sample_datetime) |>
   distinct() |>
@@ -139,36 +163,42 @@ stations_metadata <- stations_metadata |>
 
 arrow::write_parquet(stations_metadata,"data/wq_meta_dep.parquet")
 
+
+#  retain intersting columns with not too much missing data --------------------
 # count the number of NA entries in each column of wq_data_dep
 missing_data <- wq_data_dep |>
   summarise_all(~sum(is.na(.))) |>
-  gather() |>
-  arrange(desc(value))
+  pivot_longer(cols = everything(),names_to = "variable",values_to = "num_missing") |>
+  arrange(num_missing)
+View(missing_data)
 
-#  retain intersting columns with not too much missing data
 # in most cases this means keeping sample labeled "top" but not "bottom"
 wq_data_dep_subset <- wq_data_dep |>
+  # we need at least coliform
+  drop_na(top_fecal_coliform_bacteria_cells_100ml) |>
+  group_by(sampling_location,sample_datetime) |>
   # filter(year(sample_datetime) > year(Sys.Date()) - 10) |>
   transmute(sampling_location,
             sample_datetime,
             current_direction = current_direction_current_direction,
             current_speed_knot,
-            dissolved_oxygen_ml_l = as.numeric(winkler_method_top_dissolved_oxygen_mg_l),
+            oxygen_ml_l = max(as.numeric(winkler_method_top_dissolved_oxygen_mg_l),
+                              as.numeric(winkler_method_bottom_dissolved_oxygen_mg_l),
+                                        na.rm = TRUE),
+            oxygen_ml_l = if_else(is.infinite(oxygen_ml_l),NA,oxygen_ml_l),
             sample_temperature_c = as.numeric(top_sample_temperature_c),
             salinity_psu = as.numeric(top_salinity_psu),
             ph = as.numeric(top_ph),
             nutrient_nitrate_mg_l =  as.numeric(top_nitrate_nitrite_mg_l),
             nutrient_phosphorus_mg_l = as.numeric(total_phosphorus_mg_l),
             nutrient_ammonium_mg_l = as.numeric(top_ammonium_mg_l),
-            enterococci_100ml = as.numeric(top_enterococci_bacteria_cells_100ml),
-            fecal_coliform_100ml = as.numeric(top_fecal_coliform_bacteria_cells_100ml)) |>
-    # we need at least coliform
-  drop_na(fecal_coliform_100ml)
-
+            bacteria_enterococci_100ml = as.numeric(top_enterococci_bacteria_cells_100ml),
+            bacteria_fecal_coliform_100ml = as.numeric(top_fecal_coliform_bacteria_cells_100ml))
 
 # clean up current speed and direction.
 # convert speed to numeric and direction to compass point
 wq_data_dep_subset <- wq_data_dep_subset |>
+  ungroup() |>
   # some are swapped
   mutate(current_speed_knot = if_else(current_speed_knot %in% compass_points,
                                       current_direction, current_speed_knot),
