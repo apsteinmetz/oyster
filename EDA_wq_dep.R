@@ -2,6 +2,9 @@
 library(tidyverse)
 library(lubridate)
 library(arrow)
+library(tidymodels)
+library(rpart.plot)
+library(vip)
 
 # Load data dep data
 wq_data_raw <- read_parquet("data/wq_data_dep_subset.parquet")
@@ -76,11 +79,109 @@ wq_data <- wq_data_raw %>%
   select(-sample_datetime) |>
   drop_na() |>
   select(Area,everything())
-
 # only 6287 rows of full data
+
+
 skimr::skim(wq_data)
 wq_data$bacteria_enterococci_100ml |> hist()
 wq_data$bacteria_fecal_coliform_100ml |> hist()
 
-# probably need to scale bacteria by interquartile range
+# no feature engineering
+wq_data_subset <- wq_data |> select(-contains("fecal"))
+wq_recipe <- recipe(bacteria_enterococci_100ml ~ ., data = wq_data_subset)
+
+# so many of the predictors and responses are skewed  so a tree-based model
+# is a good choice
+# build a tidymodels workflow
+show_engines("rand_forest")
+set.seed(123)
+rf_mod <- rand_forest() %>%
+  set_engine("ranger",importance = "impurity") %>%
+  set_mode("regression")
+
+wq_workflow <- workflow() %>%
+  add_model(rf_mod) %>%
+  add_recipe(wq_recipe)
+
+rf_fit <- wq_workflow |>
+  fit(data = wq_data)
+
+wq_fold <- vfold_cv(wq_data, v = 5)
+rf_tunings <-
+  wq_workflow |>
+  tune_grid(resamples = wq_fold, grid = 5)
+
+
+rf_best_model <- rf_tunings |>
+  select_best(metric = "rmse")
+
+final_wf <- wq_workflow |>
+  finalize_workflow(rf_best_model)
+
+final_fit <- final_wf |>
+  fit(data = wq_data)
+
+
+# rpart ------------------------------------------------------------------------
+#wq_split <- initial_split(wq_data_subset, prop = 0.75, strata = bacteria_enterococci_100ml)
+#wq_train <- training(wq_split)
+#wq_test  <- testing(wq_split)
+
+wq_folds <- vfold_cv(wq_data_subset, v = 5,strata = bacteria_enterococci_100ml,breaks = 4)
+
+tree_grid <- grid_regular(cost_complexity(),
+                          tree_depth(),
+                          levels = 5)
+dt_mod <-
+  decision_tree() %>%
+  set_engine("rpart",model = TRUE) %>%
+  set_mode("regression")
+
+dt_tune_mod <-
+  decision_tree(cost_complexity = tune(),
+                tree_depth = tune()) %>%
+  set_engine("rpart",model = TRUE) %>%
+  set_mode("regression")
+
+tree_wf <- workflow() |>
+  add_model(dt_mod) |>
+  add_recipe(wq_recipe)
+
+tree_res <- tree_wf |>
+  fit(data = wq_data_subset)
+
+
+tree_res <-
+  tree_wf %>%
+  tune_grid(
+    resamples = wq_folds,
+    grid = tree_grid
+  )
+
+tree_res |> select_best()
+# plot tree
+tree_rpart <- tree_res |>
+  pull_workflow_fit() |>
+  extract_fit_engine()
+
+tree_rpart|>
+  rpart.plot::rpart.plot()
+
+tree_rpart |>
+  vip::vip()
+
+tree_rpart |> rpart::meanvar()
+
+
+wq_data_subset_fit <- tree_res |> predict(new_data = wq_data_subset) |> bind_cols(wq_data_subset)
+wq_data_subset_fit |> ggplot(aes(x = bacteria_enterococci_100ml, y = .pred)) +
+  geom_point() +
+  geom_abline() +
+  labs(title = "Predicted vs Actual",
+       x = "Actual",
+       y = "Predicted")
+
+tree_res
+
+
 
