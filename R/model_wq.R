@@ -2,7 +2,7 @@
 library(tidyverse)
 library(duckplyr)
 library(skimr)
-library(plotly)
+library(tidymodels)
 
 # read in the data
 wq <- df_from_parquet("data/wq_model_data.parquet") |>
@@ -28,9 +28,9 @@ wq |> pivot_longer(temperature_noaa) |>
 
 wq_adj <- wq |>
   ungroup() |>
-  mutate(bacteria = if_else(bacteria>1500, 1500,bacteria)) |>
+  # mutate(bacteria = if_else(bacteria>1500, 1500,bacteria)) |>
   filter(temperature_noaa > 50) |>
-  remove_missing()
+  drop_na()
 
 # show a violin plot of bacteria concentration by site
 wq_adj |>
@@ -86,7 +86,7 @@ rain_axis = 2.5
 wq_data_4 |>
   filter(year(date) > 2011) |>
   filter(month(date) %in% c(5,6,7,8,9)) |>
-  mutate(bacteria = if_else(bacteria>1500, 1500,bacteria)) |>
+  # mutate(bacteria = if_else(bacteria>1500, 1500,bacteria)) |>
   summarise(.by = year, median_bacteria = median(bacteria),
             median_temp = median(temperature_noaa),
             "total_rainfall" = mean(precip_wk)*20*rain_axis) |>
@@ -119,7 +119,9 @@ wq_adj |>
 # show pairwise correlation plots
 
 
-wq_adj |> select(-site) |> gather() |> ggplot(aes(x = value)) +
+wq_adj |> select(-site) |>
+  gather() |>
+  ggplot(aes(x = value)) +
   geom_histogram() +
   facet_wrap(~key, scales = "free")
 
@@ -176,3 +178,57 @@ best_model_data |> select(data) |>
   cor() |>
   corrplot::corrplot()
 
+# try tree-based models --------------------------------------------------------
+# tree-based models are better at handling non-linear relationships and
+# large outliers
+
+set.seed(123)
+wq_adj <- wq_adj |>
+  mutate(site = as_factor(site))
+wq_recipe <- recipe(bacteria ~ ., data = wq_adj) |>
+  # step_range(bacteria,max = 1500) |>
+  prep()
+
+wq_prepped <- wq_recipe |> bake(new_data = NULL)
+
+wq_prepped |> skim()
+
+wq_rf_model <- rand_forest() |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("regression")
+
+wq_wf <- workflow() |>
+  add_recipe(wq_recipe) |>
+  add_model(wq_rf_model)
+
+wq_fit <- wq_wf |>
+  fit(data = wq_prepped)
+
+# show variable importance
+wq_fit |>
+  pull_workflow_fit() |>
+  vip::vip()
+
+wq_adj_fit <- wq_fit |>
+  predict(new_data = wq_prepped) |>
+  bind_cols(wq_adj)
+
+wq_adj_fit |>
+  metrics(truth = bacteria, estimate = .pred)
+
+# plot truth vs predicted
+wq_adj_fit |>
+  ggplot(aes(x = bacteria, y = .pred-bacteria)) +
+  geom_point() +
+  geom_abline() +
+  labs(title = "Truth vs Predicted Bacteria Concentration",
+       x = "Truth",
+       y = "Predicted")
+
+# plot residuals
+wq_adj_fit |>
+  ggplot(aes(x = .resid)) +
+  geom_histogram() +
+  labs(title = "Histogram of Residuals",
+       x = "Residuals",
+       y = "Frequency")
