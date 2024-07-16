@@ -1,14 +1,44 @@
 ---
 title: "Exploring BOP WQ Data"
 author: "Art Steinmetz"
-format: pdf
+date: "2024-06-24"
+format: typst
+execute:
+  message: false
+  error: true
+  warning: false
+  eval: true
+  echo: false
 ---
+
+```{r}
+library(tidyverse)
+library(duckplyr)
+library(skimr)
+library(gt)
+rlang::local_options(duckdb.materialize_message = FALSE)
+wq <- df_from_parquet("../data/wq_model_data.parquet") |>
+  # remove rows with missing data
+  remove_missing() |>
+  as_tibble()
+wq_data_4 <- df_from_parquet("../data/wq_data_4.parquet") |>
+  as_tibble()
+
+methods_restore()
+
+# quality labels
+SAFE <- 35
+DANGER <- 104
+
+```
 
 ## Predicting Enterococci Levels in NYC Harbor
 
 This document explores the relationship between weather, tides and water quality in the NYC Harbor. The data sources are the Billion Oyster Project (BOP), the Citizens' Water Quality Testing Program and the NOAA.
 
-In preview, I am not optimistic about the ability to predict Enterococci levels in the NYC Harbor with the available data. The data is noisy and the relationship between weather, tides and water quality weak. My suspicion is that individual sites are affected more by point sources of contaminants than by the variables we can easily measure.
+In preview, I am not optimistic about the ability to predict Enterococci levels in the NYC Harbor with the available data. The data is noisy and the relationship between weather, tides and water quality is weak. My suspicion is that individual sites are affected more by point sources of contaminants than by the variables we can easily measure.
+
+This is not an academic-quality study.  It is an exploration of the data.  I am not a water quality expert or a professional statistician.  Comments and criticism are welcome.
 
 ## Data
 
@@ -16,25 +46,243 @@ The main data source is the BOP water quality spreadsheet found here: [BOP Water
 
 ## Feature Engineering
 
-The BOP data includes time of last high tide. I thought I could get more granular by imputing the direction and strength of the tidal current at the time of the water sample. I used the NOAA tide data to find the previous slack tide time and level, then the next slack tide time and level. By determining where in the tide phase the sample was taken and the total change in water level for that phase, I impute the direction and strength of the tidal current when the sample was taken using this formula:
+The BOP data includes time of last high tide. I thought I could get more granular by imputing the direction and strength of the tidal current at the time of the water sample. I used the NOAA tide data to find the previous slack tide time and level, then the next slack tide time and level.By determining where in the tide phase the sample was taken and the total change in water level for that phase, I impute the direction and strength of the tidal current when the sample was taken using this formula:
 
-# markdown formula
+$$
+CurrentSpeed = HighLowRangeFt * sin(\pi * \frac{HoursSinceLastTide}{TideDurationHrs})
+$$
 
-CurrentSpeed = TideHighLowRange \* \sin(\pi \* HoursSinceLastTide / TideDurationHrs)
+So the further we are from a slack tide, high or low, the faster the current will be. The bigger the change in water level during a tidal phase, the stronger the current will be. Ebb tides are negative values, flood tides are positive. *CurrentSpeed* is an index so the units don't have a specific meaning like feet-per-second.
+
+I get the tides from the closest NOAA tide station to each water sampling site. Where the location of the sampling site is not known, I default to the Battery tide station at the bottom of Manhattan. This occurs when the name of the sampling site does not agree with any site name in the location meta data.  **There are significant number of such cases.**
 
 I chose to use just the weekly total rainfall and the one-day rainfall amounts. Obviously, we don't know if the more of 1-day rain fell before or after the sample was taken.
 
-The BOP data does not include temperature. I used the NOAA Central Park temperature for each sample day as a data feature. This is a (not very good) proxy for the water temperature but also for seasonality. Consequently, I don't use dates as a data feature.
+The BOP data does not include temperature. I used the NOAA Central Park temperature for each sample day as a data feature. This is a (not very good) proxy for the water temperature but also for seasonality. This allows seasonality to be a continuous variable. Otherwise, "month" would be a categorical variable.
+
+In the end I chose to the following features: `SampleTime`, `Enterococci`, `TideHighLowRange`, `TideDurationHrs`, `HoursSinceLastTide`, `CurrentSpeed`, `OneDayRain`, `WeeklyRain` and `Temperature`.
+
+The bacteria levels are distributed in a lopsided way. The extreme high level is effectively infinity and conveys little information. Values above 5000 are only 5% of the observations and values below 500 are 82% of the observations.
 
 ```{r}
-1 + 1
+wq |> pivot_longer(bacteria) |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Histogram of Bacteria Concentration",
+       x = "Bacteria Concentration",
+       y = "Frequency")
 ```
 
-You can add options to executable code like this
+I chose to cap the bacteria levels at 5000 and do a log transform to make the distribution more even.
 
 ```{r}
-#| echo: false
-2 * 2
+wq_adj <- wq |>
+  ungroup() |>
+  mutate(bacteria = if_else(bacteria>5000, log(5000),log(bacteria+1))) |>
+  filter(temperature_noaa > 50) |>
+  remove_missing()
+
+wq_adj |> pivot_longer(bacteria) |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30) +
+  geom_vline(xintercept = log(SAFE),color="red",linewidth=2) +
+  annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+  labs(title = "Histogram of Bacteria Concentration",
+       x = "Bacteria Concentration",
+       y = "Frequency")
+
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+Finally, since we are mostly interested in the warm weather months and there are very few samples in the winter, I filtered out samples taken when the NOAA temperature was below 50 degrees. As it turns out, this does improve the model fit a small amount.
+
+## Data Exploration
+
+What are the distributions of all the variables? Note the tide level distribution are the levels at just the high and low tides.
+
+```{r}
+# plot histograms of all variables using ggplot
+wq_adj |>
+  ungroup() |>
+  select(-site) |>
+  gather() |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins=20) +
+  facet_wrap(~key, scales = "free")
+```
+
+What are the cleanest and most contaminated sites?
+
+```{r}
+median_all <- median(wq_adj$bacteria)
+# show a violin plot of bacteria concentration by site
+wq_adj |>
+  group_by(site) |>
+  nest() |>
+  ungroup() |>
+  mutate(n_obs = map_int(data, nrow)) |>
+  # get median of bacteria concentrations for each site
+  mutate(median_bacteria = map_dbl(data, ~median(.x$bacteria))) |>
+  filter(n_obs > 100) |>
+  slice_max(median_bacteria,n = 10)|>
+  unnest(data) |>
+  ggplot(aes(x = factor(site), y = bacteria)) +
+  geom_violin(draw_quantiles = .5) +
+  geom_jitter(width = .1) +
+  # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+
+  labs(title = "Worst Sites for Bacteria Count",
+       x = "Site",
+       y = "Log Bacteria Concentration") +
+  coord_flip() + 
+  geom_hline(yintercept = log(SAFE),color="red",linewidth=2) + 
+  annotate("text", x = log(SAFE)-2, y = 1, label = "Safe Levels", color = "darkgreen")
+
+```
+
+```{r}
+#best sites
+wq_adj |>
+  group_by(site) |>
+  nest() |>
+  ungroup() |>
+  mutate(n_obs = map_int(data, nrow)) |>
+  # get mean of bacteria concentrations for each site
+  mutate(median_bacteria = map_dbl(data, ~median(.x$bacteria))) |>
+  filter(n_obs > 100) |>
+  slice_min(median_bacteria,n = 10) |>
+  unnest(data) |>
+  ggplot(aes(x = factor(site), y = bacteria)) +
+  geom_violin(draw_quantiles = .5) +
+  geom_jitter(width = .1) +
+  labs(title = "Cleanest Sites by Bacteria Count",
+       x = "Site",
+       y = "Log Bacteria Concentration") +
+  coord_flip() + 
+  geom_hline(yintercept = log(SAFE),color="red",linewidth=2) + 
+  annotate("text", x = log(SAFE)-2, y = 1, label = "Safe Levels", color = "darkgreen")
+```
+
+What is obvious is that even the cleanest sites have a lot of variation in bacteria levels. This might give us some hope that environmental factors might be more important than location in predicting bacteria levels.
+
+Now let's look at some trends over time. Sadly, the overall level of bacteria has not improved over time. Looking at temperature, there are no clear trends. There are a couple years where a lot of rainfall seems associated with more bacteria but other years contradict that.
+
+```{r}
+rain_axis = 2.5
+wq_data_4 |>
+  filter(year > 2011) |>
+  summarise(.by = year, median_bacteria = median(bacteria),
+            median_temp = median(temperature_noaa),
+            "total_rainfall" = mean(precip_wk)*20*rain_axis) |>
+  ggplot(aes(x = year, y = median_bacteria)) + geom_col() +
+  # geom_smooth(aes(x = year, y = median_bacteria),color = "black",se = FALSE) +
+  geom_line(aes(x = year, y = median_temp), color = "red") +
+  geom_line(aes(x = year, y = total_rainfall), color = "blue") +
+  # label the y-axes
+  scale_x_continuous(breaks = seq(2000,2024,1)) +
+  # put totat_rainfall on secondary y-axis
+  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Total Rainfall (Blue Line")) +
+  labs(y = "Median Bacteria Concentration and Temperature (Red Line)",
+       title= str_to_title("water is not getting cleaner over time"),
+       subtitle = "May-September, 2012-2024")
+
+```
+
+## Modeling
+
+Looking at a pairwise correlation plot, we see that the variables are not highly correlated, which suggests good variable selection but, on the other hand, that the variables are not very predictive of bacteria levels.
+
+```{r}
+# show pairwise correlation plots
+wq |> select(-site) |> cor() |> corrplot::corrplot()
+```
+
+Since we have all continuous variables a linear regression model should be appropriate.
+
+```{r}
+# fit a linear model to predict bacteria levels
+wq_adj_2 <- wq_adj |>
+  select(-site)
+model <- lm(bacteria ~ ., data = wq_adj_2)
+summary(model)
+```
+
+As it turns out, only rainfall and temperature are statistically significant. Tides are not. This scarcely matters because ***the model is worthles***s. The R-squared is 0.05 and the residuals are not normally distributed.
+
+```{r}
+# plot actual vs fitted
+model |>
+  broom::augment() |>
+  ggplot(aes(bacteria,.fitted)) +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  labs(title = "Actual vs Fitted",
+       x = "Actual Bacteria Values",
+       y = "Fitted")
+```
+
+Can we get better results if we run separate models for each site? Yes, but not much. The R-squared values are still very low. The best site has an R-squared of less than 0.25.
+
+```{r}
+# model each station separately
+wq_adj_lm_indiv <- wq_adj |>
+  group_by(site) |>
+  nest() |>
+  mutate(model = map(data, ~lm(bacteria ~ ., data = .))) |>
+  mutate(tidy = map(model, broom::glance)) |>
+  unnest(tidy) |>
+  # remove rows with NaN
+  filter(!r.squared == 1.0) |>
+  filter(nobs > 100)
+
+
+wq_adj_lm_indiv |>
+  # filter(r.squared  > .1) |>
+  filter(nobs > 100) |>
+  ggplot(aes(site,r.squared)) +
+  geom_col() +
+  # do not show x-axis labels
+  theme(axis.text.x = element_blank()) + 
+  labs(title = "R-Squared of Individual Site Models",
+       x = "Site",
+       y = "R-Squared")
+
+
+best_model <- wq_adj_lm_indiv |>
+  ungroup() |>
+  filter(nobs > 100) |>
+  slice_max(r.squared, n = 1)
+
+best_site <- best_model$site[1]
+
+```
+
+A regression model fits the `r best_site` site best but it's still terrible.
+
+```{r}
+
+best_model_data <- best_model|> 
+  select(data) |>
+  unnest(data)
+
+best_model_data |>  
+    cor() |>
+  corrplot::corrplot()
+```
+
+```{r}
+summary(best_model$model[[1]])
+```
+
+```{r}
+# plot residuals
+best_model$model[[1]] |>
+  broom::augment() |>
+  ggplot(aes(bacteria,.fitted)) +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  labs(title = "Actual vs Fitted",
+       x = "Actual Bacteria Values",
+       y = "Fitted")
+```
+## Conclusion
+The results of this experiment are disappointing. The model is not predictive of bacteria levels. The best site model has an R-squared of 0.24. The overall model has an R-squared of 0.05. I also tried a categorical model where I binned the bacteria levels into SAFE, WARNING and UNSAFE. While it provided a much more even distribution of bacteria levels, this model was also not predictive.  As I mentioned above, understanding point sources of pollution around each site might be more fruitful.
