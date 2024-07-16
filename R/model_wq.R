@@ -3,6 +3,8 @@ library(tidyverse)
 library(duckplyr)
 library(skimr)
 library(tidymodels)
+library(vip)
+
 
 # read in the data
 wq <- df_from_parquet("data/wq_model_data.parquet") |>
@@ -28,9 +30,7 @@ wq |> pivot_longer(temperature_noaa) |>
 
 wq_adj <- wq |>
   ungroup() |>
-  # mutate(bacteria = if_else(bacteria>1500, 1500,bacteria)) |>
-  filter(temperature_noaa > 50) |>
-  drop_na()
+  filter(temperature_noaa > 50)
 
 # show a violin plot of bacteria concentration by site
 wq_adj |>
@@ -135,15 +135,31 @@ skim(wq_adj)
 # show pairwise correlation plots
 wq_adj |> select(-site) |> cor() |> corrplot::corrplot()
 
-wq_adj_2 <- wq_adj |>
-  select(-site)
-wq_adj_2_lm <- lm(bacteria ~ ., data = wq_adj_2)
-broom::tidy(wq_adj_2_lm)
-summary(wq_adj_2_lm)
-broom::glance(wq_adj_2_lm)
+wq_adj_prep <- wq_adj |>
+  ungroup() |>
+  filter(temperature_noaa > 50) |>
+  filter(bacteria >0 ) |>
+  filter(bacteria < 5000 ) |>
+  select(-site) |>
+  select(-precip_noaa) |>
+  # mutate(site = as_factor(site)) |>
+  mutate(bacteria = log(bacteria + .01)) |>
+  drop_na()
+
+wq_lm <- lm(bacteria ~ ., data = wq_adj_prep)
+broom::tidy(wq_lm)
+summary(wq_lm)
+broom::glance(wq_lm)
+
+wq_lm_pred <-wq_lm |>
+  predict() |>
+  enframe(name = NULL, value = ".pred") |>
+  bind_cols(wq_adj_prep) |>
+  select(bacteria,.pred,everything())
 
 # plot model output
-wq_adj_2 |> ggplot(aes(x = precip_wk, y = bacteria)) +
+wq_lm_pred |>
+  ggplot(aes(x = bacteria, y= .pred)) +
   geom_point() +
   geom_smooth(method = "lm", se = TRUE)
 
@@ -183,52 +199,104 @@ best_model_data |> select(data) |>
 # large outliers
 
 set.seed(123)
-wq_adj <- wq_adj |>
-  mutate(site = as_factor(site))
-wq_recipe <- recipe(bacteria ~ ., data = wq_adj) |>
-  # step_range(bacteria,max = 1500) |>
-  prep()
+wq_rf_prep <- wq |>
+  ungroup() |>
+  filter(temperature_noaa > 50) |>
+  filter(bacteria >0 ) |>
+  filter(bacteria < 5000 ) |>
+  # select(-site) |>
+  select(-precip_noaa) |>
+  # mutate(site = as_factor(site)) |>
+  mutate(bacteria = log(bacteria + .01)) |>
+  # dimension reduction
+  separate(site,into = "body",remove = FALSE,extra = "drop")
+      drop_na()
 
-wq_prepped <- wq_recipe |> bake(new_data = NULL)
+skim(wq_rf_prep)
 
-wq_prepped |> skim()
+wq_recipe <- recipe(bacteria ~ ., data = wq_rf_prep) |>
+  step_log(precip_wk,offset = .01) |>
+  step_normalize(all_numeric_predictors())
+# wq_adj_prep <- wq_recipe |> bake(new_data = NULL)
+
+# wq_adj_prep |> skim()
 
 wq_rf_model <- rand_forest() |>
   set_engine("ranger",importance = "impurity") |>
   set_mode("regression")
 
+wq_rf2_model <- rand_forest() |>
+  set_engine("randomForest",corr.bias = TRUE)  |>
+  set_mode("regression")
+
 wq_wf <- workflow() |>
-  add_recipe(wq_recipe) |>
-  add_model(wq_rf_model)
+  add_model(wq_rf2_model) |>
+  add_recipe(wq_recipe)
 
 wq_fit <- wq_wf |>
-  fit(data = wq_prepped)
+  fit(data = wq_rf_prep)
 
 # show variable importance
 wq_fit |>
   pull_workflow_fit() |>
   vip::vip()
 
-wq_adj_fit <- wq_fit |>
-  predict(new_data = wq_prepped) |>
-  bind_cols(wq_adj)
+wq_adj_pred <- wq_fit |>
+  predict(new_data = wq_rf_prep) |>
+  bind_cols(wq_rf_prep) |>
+  select(bacteria,.pred,everything())
 
-wq_adj_fit |>
+# dummy adjustment
+# wq_adj_pred <- wq_adj_pred |>
+#  mutate(.pred = .pred*2-5)
+
+
+wq_pred <- wq_adj_pred |>
+  mutate(across(c(1,2),exp))
+
+
+wq_adj_pred |>
+  metrics(truth = bacteria, estimate = .pred)
+wq_pred |>
   metrics(truth = bacteria, estimate = .pred)
 
 # plot truth vs predicted
-wq_adj_fit |>
-  ggplot(aes(x = bacteria, y = .pred-bacteria)) +
+wq_adj_pred |>
+  # filter(.pred - bacteria > -5000) |>
+  ggplot(aes(x = bacteria, y = .pred)) +
   geom_point() +
   geom_abline() +
-  labs(title = "Truth vs Predicted Bacteria Concentration",
-       x = "Truth",
+  labs(title = "Measured vs Predicted Bacteria Concentration",
+       x = "Measured",
+       y = "Predicted")
+
+# plot truth vs predicted
+wq_pred |>
+  filter(.pred < 10000) |>
+  ggplot(aes(x = bacteria, y = .pred)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth() +
+  labs(title = "Measured vs Predicted Bacteria Concentration",
+       x = "Measured",
        y = "Predicted")
 
 # plot residuals
-wq_adj_fit |>
-  ggplot(aes(x = .resid)) +
+wq_adj_pred |>
+  # filter(.pred - bacteria > -5000) |>
+  ggplot(aes(x = bacteria, y = .pred - bacteria)) +
+  geom_point() +
+  # geom_hline(yintercept = -10000) +
+  labs(title = "Measured Bacteria Concentration vs Model Residuals",
+       x = "Measured",
+       y = "Residual")
+
+wq_pred |>
+  filter(.pred - bacteria < 5000) |>
+  ggplot(aes(x = .pred - bacteria)) +
   geom_histogram() +
   labs(title = "Histogram of Residuals",
        x = "Residuals",
        y = "Frequency")
+
+# use rpart
