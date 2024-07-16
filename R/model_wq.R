@@ -140,28 +140,39 @@ wq_adj_prep <- wq_adj |>
   filter(temperature_noaa > 50) |>
   filter(bacteria >0 ) |>
   filter(bacteria < 5000 ) |>
-  select(-site) |>
   select(-precip_noaa) |>
-  # mutate(site = as_factor(site)) |>
+  mutate(site = as_factor(site)) |>
+  # select(-site) |>
   mutate(bacteria = log(bacteria + .01)) |>
   drop_na()
 
-wq_lm <- lm(bacteria ~ ., data = wq_adj_prep)
+wq_lm <- lm(bacteria ~ . , data = wq_adj_prep)
 broom::tidy(wq_lm)
 summary(wq_lm)
 broom::glance(wq_lm)
 
 wq_lm_pred <-wq_lm |>
-  predict() |>
-  enframe(name = NULL, value = ".pred") |>
-  bind_cols(wq_adj_prep) |>
-  select(bacteria,.pred,everything())
+  augment()
 
 # plot model output
 wq_lm_pred |>
-  ggplot(aes(x = bacteria, y= .pred)) +
+  ggplot(aes(x = bacteria, y= .fitted)) +
   geom_point() +
+  geom_abline() +
   geom_smooth(method = "lm", se = TRUE)
+
+
+wq_lm_pred <- wq_lm_pred |>
+  rename(orig_fit = .fitted)
+
+wq_lm_2 <-  lm(bacteria ~ orig_fit, data = wq_lm_pred)
+wq_lm_2_pred <- augment(wq_lm_2)
+wq_lm_2_pred |>
+  ggplot(aes(x = bacteria, y= .fitted)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth(method = "lm", se = TRUE)
+
 
 # model each station separately
 wq_adj_lm_indiv <- wq_adj |>
@@ -198,6 +209,8 @@ best_model_data |> select(data) |>
 # tree-based models are better at handling non-linear relationships and
 # large outliers
 
+dep_station_names <- read_csv("data/dep_station_names.csv")
+
 set.seed(123)
 wq_rf_prep <- wq |>
   ungroup() |>
@@ -209,8 +222,9 @@ wq_rf_prep <- wq |>
   # mutate(site = as_factor(site)) |>
   mutate(bacteria = log(bacteria + .01)) |>
   # dimension reduction
-  separate(site,into = "body",remove = FALSE,extra = "drop")
-      drop_na()
+  separate(site,into = "body",remove = FALSE,extra = "drop") |>
+  select(-site) |>
+  drop_na()
 
 skim(wq_rf_prep)
 
@@ -299,4 +313,3 @@ wq_pred |>
        x = "Residuals",
        y = "Frequency")
 
-# use rpart
