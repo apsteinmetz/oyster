@@ -209,7 +209,8 @@ best_model_data |> select(data) |>
 # tree-based models are better at handling non-linear relationships and
 # large outliers
 
-dep_station_names <- read_csv("data/dep_station_names.csv")
+# not needed since we separated the site and into a separate column
+# dep_station_names <- read_csv("data/dep_station_names.csv")
 
 set.seed(123)
 wq_rf_prep <- wq |>
