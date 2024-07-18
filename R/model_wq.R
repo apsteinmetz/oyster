@@ -4,14 +4,17 @@ library(duckplyr)
 library(skimr)
 library(tidymodels)
 library(vip)
+library(gt)
 
 
-# read in the data
+# read in the data -------------------------------------------------------------
 wq <- df_from_parquet("data/wq_model_data.parquet") |>
   # remove rows with missing data
   remove_missing() |>
   as_tibble() |>
   group_by(site)
+
+# Exploratory Data Analysis -----------------------------------------------------
 
 wq |> pivot_longer(bacteria) |>
   ggplot(aes(x = value)) +
@@ -71,7 +74,7 @@ wq_adj |>
   coord_flip()
 
 
-# show median bacteria trends over time ----------------------------------------
+# show median bacteria trends over time
 wq_data_4 <- df_from_parquet("data/wq_data_4.parquet") |>
   as_tibble()
 
@@ -104,7 +107,6 @@ wq_data_4 |>
 
 
 
-glimpse(wq_adj)
 skim(wq_adj)
 
 # plot histograms of all variables using ggplot
@@ -117,8 +119,6 @@ wq_adj |>
   facet_wrap(~key, scales = "free")
 
 # show pairwise correlation plots
-
-
 wq_adj |> select(-site) |>
   gather() |>
   ggplot(aes(x = value)) +
@@ -135,6 +135,7 @@ skim(wq_adj)
 # show pairwise correlation plots
 wq_adj |> select(-site) |> cor() |> corrplot::corrplot()
 
+# run a linear regression to predict bacteria concentration -------------------------
 wq_adj_prep <- wq_adj |>
   ungroup() |>
   filter(temperature_noaa > 50) |>
@@ -142,32 +143,27 @@ wq_adj_prep <- wq_adj |>
   filter(bacteria < 5000 ) |>
   select(-precip_noaa) |>
   mutate(site = as_factor(site)) |>
-  # select(-site) |>
   mutate(bacteria = log(bacteria + .01)) |>
+  select(-site) |>
+  # select(-temperature_noaa) |>
+  # select(-precip_wk) |>
+  # select(-tide_level) |>
+  # select(-hours_since_last) |>
+  # select(-current) |>
   drop_na()
 
-wq_lm <- lm(bacteria ~ . , data = wq_adj_prep)
+wq_lm <- lm(bacteria ~ 0 + ., data = wq_adj_prep)
 broom::tidy(wq_lm)
 summary(wq_lm)
 broom::glance(wq_lm)
+crPlots(wq_lm)
+
 
 wq_lm_pred <-wq_lm |>
   augment()
 
 # plot model output
 wq_lm_pred |>
-  ggplot(aes(x = bacteria, y= .fitted)) +
-  geom_point() +
-  geom_abline() +
-  geom_smooth(method = "lm", se = TRUE)
-
-
-wq_lm_pred <- wq_lm_pred |>
-  rename(orig_fit = .fitted)
-
-wq_lm_2 <-  lm(bacteria ~ orig_fit, data = wq_lm_pred)
-wq_lm_2_pred <- augment(wq_lm_2)
-wq_lm_2_pred |>
   ggplot(aes(x = bacteria, y= .fitted)) +
   geom_point() +
   geom_abline() +
@@ -198,7 +194,6 @@ best_model_data <- wq_adj_lm_indiv |>
   ungroup() |>
   filter(nobs > 100) |>
   slice_max(r.squared, n = 1)
-  # filter(r.squared  > .24)
 
 best_model_data |> select(data) |>
   unnest(data) |>
@@ -261,11 +256,6 @@ wq_adj_pred <- wq_fit |>
   bind_cols(wq_rf_prep) |>
   select(bacteria,.pred,everything())
 
-# dummy adjustment
-# wq_adj_pred <- wq_adj_pred |>
-#  mutate(.pred = .pred*2-5)
-
-
 wq_pred <- wq_adj_pred |>
   mutate(across(c(1,2),exp))
 
@@ -313,4 +303,175 @@ wq_pred |>
   labs(title = "Histogram of Residuals",
        x = "Residuals",
        y = "Frequency")
+
+# try a classifier model -------------------------------------------------------
+
+wq_rf_prep_cl <- wq |>
+  ungroup() |>
+  # create a 3 level factor
+  mutate(bacteria_category = cut(bacteria, breaks = c(0, 35,104, Inf), labels = c("SAFE", "CAUTION", "UNSAFE"))) |>
+  select(-bacteria) |>
+  select(-precip_noaa) |>
+  separate(site,into = "body",remove = FALSE,extra = "drop") |>
+  # convert all char columns to factors
+  mutate_if(is.character,as.factor) |>
+  # select(-site) |>
+  select(-body) |>
+  drop_na()
+
+skim(wq_rf_prep_cl)
+
+wq_recipe_cl <- recipe(bacteria_category ~ ., data = wq_rf_prep_cl) |>
+  step_normalize(all_numeric_predictors())
+
+wq_recipe_cl |> prep() |> bake(new_data = NULL) |>
+  skim()
+
+wq_rf_model_cl <- rand_forest() |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+wq_rf2_model <- rand_forest() |>
+  # since bacteria_category is a factor, a classifier model is assumed
+  set_engine("randomForest",corr.bias = TRUE)
+
+wq_wf <- workflow() |>
+  add_model(wq_rf_model_cl) |>
+  add_recipe(wq_recipe_cl)
+
+wq_fit_cl <- wq_wf |>
+  fit(data = wq_rf_prep_cl)
+
+# show variable importance
+wq_fit_cl |>
+  pull_workflow_fit() |>
+  vip::vip()
+
+wq_pred_cl <- wq_fit_cl |>
+  augment(new_data = wq_rf_prep_cl)
+
+# show a confusion matrix
+wq_pred_cl |>
+  conf_mat(truth = bacteria_category, estimate = .pred_class)
+
+# plot a ROC curve
+wq_pred_cl |>
+  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  theme_bw()
+
+
+
+# separate wq_rf_prep_cl into training and testing sets
+set.seed(123)
+wq_split <- initial_split(wq_rf_prep_cl, prop = 0.75, strata = bacteria_category)
+wq_train <- training(wq_split)
+wq_test <- testing(wq_split)
+
+skim(wq_train)
+skim(wq_test)
+ggplot(wq_train,aes(x = bacteria_category)) + geom_bar()
+ggplot(wq_test,aes(x = bacteria_category)) + geom_bar()
+
+# new recipe with just the training data
+wq_recipe_cl <- recipe(bacteria_category ~ ., data = wq_train) |>
+  step_normalize(all_numeric_predictors())
+
+wq_rf_model_cl <- rand_forest() |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+#wq_rf2_model <- rand_forest() |>
+#  # since bacteria_category is a factor, a classifier model is assumed
+#  set_engine("randomForest",corr.bias = TRUE)
+
+wq_wf <- workflow() |>
+  add_model(wq_rf_model_cl) |>
+  add_recipe(wq_recipe_cl)
+
+# fit with training data
+wq_fit_cl <- wq_wf |>
+  fit(data = wq_train)
+
+# show variable importance
+wq_fit_cl |>
+  pull_workflow_fit() |>
+  vip::vip(aesthetics = list(fill = "blue")) +
+  labs(title = "Water Quality Variable Importance",
+       subtitle = 'Random Forest Classifier to Predict "SAFE", "CAUTION" or "UNSAFE ') +
+  theme_minimal()
+
+wq_pred_cl <- wq_fit_cl |>
+  augment(new_data = wq_test)
+
+# plot prediction confidence
+wq_pred_cl |>
+  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  labs(title = "Prediction Confidence",
+       x = "Probablility Actual Is SAFE",
+       y = "Probablility Actual Is UNSAFE")
+
+# show a confusion matrix
+xt <- wq_pred_cl |>
+  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Truth) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+xt_count <- xt |>
+  select(-.prop) |>
+  pivot_wider(names_from = Prediction,values_from = n)
+
+xt_prop <- xt |>
+  select(-n) |>
+  pivot_wider(names_from = Prediction,values_from = .prop)
+
+xt_count |>
+  gt() |>
+  tab_header(title = "Truth Table") |>
+  tab_spanner(label = "Prediction", columns = where(is.numeric)) |>
+  fmt_number(columns = where(is.numeric),decimals = 0) |>
+  # fmt_percent(columns = where(is.numeric),decimals = 0) |>
+  # color the cells with a heat map
+ data_color(columns = where(is.numeric),
+            palette = "YlGn") |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = list(cells_body(columns = 1),
+                     cells_column_labels(),
+                     cells_column_spanners(),
+                     cells_title())
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "green"),cell_text(color = "black")),
+    locations = list(cells_column_labels("SAFE"),
+                     cells_body(column = 1,row = 1))
+) |>
+tab_style(
+  style = list(cell_fill(color = "yellow"),cell_text(color = "blaCk")),
+  locations = list(cells_column_labels("CAUTION"),
+                   cells_body(column = 1,row = 2))
+) |>
+tab_style(
+  style = list(cell_fill(color = "red"),cell_text(color = "white")),
+  locations = list(cells_column_labels("UNSAFE"),
+                   cells_body(column = 1,row = 3))
+)
+# plot a ROC curve
+wq_pred_cl |>
+  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  theme_bw()
 
