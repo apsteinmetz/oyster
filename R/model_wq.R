@@ -435,14 +435,16 @@ xt_prop <- xt |>
   select(-n) |>
   pivot_wider(names_from = Prediction,values_from = .prop)
 
-xt_count |>
+xt_prop |>
   gt() |>
   tab_header(title = "Truth Table") |>
   tab_spanner(label = "Prediction", columns = where(is.numeric)) |>
-  fmt_number(columns = where(is.numeric),decimals = 0) |>
-  # fmt_percent(columns = where(is.numeric),decimals = 0) |>
+  # fmt_number(columns = where(is.numeric),decimals = 0) |>
+  fmt_percent(columns = where(is.numeric),decimals = 0) |>
   # color the cells with a heat map
  data_color(columns = where(is.numeric),
+            direction = "row",
+            method = "bin",
             palette = "YlGn") |>
   tab_style(
     style = cell_text(weight = "bold"),
