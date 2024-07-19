@@ -200,6 +200,7 @@ best_model_data |> select(data) |>
   cor() |>
   corrplot::corrplot()
 
+
 # try tree-based models --------------------------------------------------------
 # tree-based models are better at handling non-linear relationships and
 # large outliers
@@ -304,6 +305,7 @@ wq_pred |>
        x = "Residuals",
        y = "Frequency")
 
+
 # try a classifier model -------------------------------------------------------
 
 wq_rf_prep_cl <- wq |>
@@ -341,7 +343,7 @@ wq_fit_cl <- wq_wf |>
 
 # show variable importance
 wq_fit_cl |>
-  pull_workflow_fit() |>
+  extract_fit_parsnip() |>
   vip::vip()
 
 wq_pred_cl <- wq_fit_cl |>
@@ -532,3 +534,89 @@ wq_pred_cl |>
 
 wq_pred_cl |>
   metrics(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimate = .pred_class)
+
+# plot a precision-recall curve
+wq_pred_cl |>
+  pr_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = recall, y = precision,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  theme_bw()
+
+# Now create a tuned model -----------------------------------------------------
+
+tune_spec <- rand_forest(
+  mtry = tune(),
+  trees = 1000,
+  min_n = tune()) |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+tune_wf <- workflow() %>%
+  add_recipe(wq_recipe_cl) %>%
+  add_model(tune_spec)
+
+set.seed(234)
+wq_folds <- vfold_cv(wq_train)
+
+doParallel::registerDoParallel()
+
+set.seed(345)
+tune_res <- tune_grid(
+  tune_wf,
+  resamples = wq_folds,
+  grid = 20
+)
+
+tune_res
+
+tune_res %>%
+  collect_metrics() %>%
+  filter(.metric == "roc_auc") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+               values_to = "value",
+               names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "AUC")
+
+rf_grid <- grid_regular(
+  mtry(range = c(3, 5)),
+  min_n(range = c(20, 26)),
+  levels = 5
+)
+
+rf_grid
+
+set.seed(456)
+regular_res <- tune_grid(
+  tune_wf,
+  resamples = wq_folds,
+  grid = rf_grid
+)
+
+regular_res
+
+regular_res %>%
+  collect_metrics() %>%
+  filter(.metric == "roc_auc") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "AUC")
+
+best_auc <- select_best(regular_res, "roc_auc")
+
+final_rf <- finalize_model(
+  tune_spec,
+  best_auc
+)
+
+final_rf
+
+
