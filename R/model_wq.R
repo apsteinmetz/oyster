@@ -312,6 +312,7 @@ wq_rf_prep_cl <- wq |>
   mutate(bacteria_category = cut(bacteria, breaks = c(0, 35,104, Inf), labels = c("SAFE", "CAUTION", "UNSAFE"))) |>
   select(-bacteria) |>
   select(-precip_noaa) |>
+  select(-precip_wk) |>
   separate(site,into = "body",remove = FALSE,extra = "drop") |>
   # convert all char columns to factors
   mutate_if(is.character,as.factor) |>
@@ -330,10 +331,6 @@ wq_recipe_cl |> prep() |> bake(new_data = NULL) |>
 wq_rf_model_cl <- rand_forest() |>
   set_engine("ranger",importance = "impurity") |>
   set_mode("classification")
-
-wq_rf2_model <- rand_forest() |>
-  # since bacteria_category is a factor, a classifier model is assumed
-  set_engine("randomForest",corr.bias = TRUE)
 
 wq_wf <- workflow() |>
   add_model(wq_rf_model_cl) |>
@@ -371,6 +368,7 @@ wq_split <- initial_split(wq_rf_prep_cl, prop = 0.75, strata = bacteria_category
 wq_train <- training(wq_split)
 wq_test <- testing(wq_split)
 
+# conform strata of bacteria_category in the test set to the training set
 skim(wq_train)
 skim(wq_test)
 ggplot(wq_train,aes(x = bacteria_category)) + geom_bar()
@@ -429,23 +427,29 @@ xt <- wq_pred_cl |>
 
 xt_count <- xt |>
   select(-.prop) |>
-  pivot_wider(names_from = Prediction,values_from = n)
+  pivot_wider(names_from = Prediction,values_from = n) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+gt_domain <- xt_count |> select(-Total,-Truth) |> max()
 
 xt_prop <- xt |>
   select(-n) |>
-  pivot_wider(names_from = Prediction,values_from = .prop)
+  pivot_wider(names_from = Prediction,values_from = .prop) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
 
 xt_prop |>
-  gt() |>
+  gt(rowname_col = "Truth") |>
   tab_header(title = "Truth Table") |>
   tab_spanner(label = "Prediction", columns = where(is.numeric)) |>
   # fmt_number(columns = where(is.numeric),decimals = 0) |>
   fmt_percent(columns = where(is.numeric),decimals = 0) |>
   # color the cells with a heat map
- data_color(columns = where(is.numeric),
-            direction = "row",
-            method = "bin",
-            palette = "YlGn") |>
+  data_color(columns = where(is.numeric),
+             direction = "row",
+             method = "bin",
+             palette = "YlGn") |>
   tab_style(
     style = cell_text(weight = "bold"),
     locations = list(cells_body(columns = 1),
@@ -457,17 +461,78 @@ xt_prop |>
     style = list(cell_fill(color = "green"),cell_text(color = "black")),
     locations = list(cells_column_labels("SAFE"),
                      cells_body(column = 1,row = 1))
-) |>
-tab_style(
-  style = list(cell_fill(color = "yellow"),cell_text(color = "blaCk")),
-  locations = list(cells_column_labels("CAUTION"),
-                   cells_body(column = 1,row = 2))
-) |>
-tab_style(
-  style = list(cell_fill(color = "red"),cell_text(color = "white")),
-  locations = list(cells_column_labels("UNSAFE"),
-                   cells_body(column = 1,row = 3))
-)
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "yellow"),cell_text(color = "blaCk")),
+    locations = list(cells_column_labels("CAUTION"),
+                     cells_body(column = 1,row = 2))
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "red"),cell_text(color = "white")),
+    locations = list(cells_column_labels("UNSAFE"),
+                     cells_body(column = 1,row = 3))
+  )
+xt_count |>
+  gt(rowname_col = "Truth") |>
+  tab_header(title = "Truth Table") |>
+  tab_spanner(label = "Prediction", columns = where(is.numeric)) |>
+  # add stub header label
+  tab_stubhead(label = "Truth") |>
+  fmt_number(columns = where(is.numeric),decimals = 0) |>
+  # fmt_percent(columns = where(is.numeric),decimals = 0) |>
+  # color the cells with a heat map
+  data_color(columns = 2:4,
+             direction = c("row"),
+             domain = c(0,gt_domain),
+             method = "numeric",
+             palette = "Blues") |>
+  # color prediction labels
+  tab_style(
+    style = list(cell_fill(color = "green"),cell_text(color = "black")),
+    locations = list(cells_column_labels("SAFE"),
+                     cells_body(column = 1,row = 1))
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "yellow"),cell_text(color = "blaCk")),
+    locations = list(cells_column_labels("CAUTION"),
+                     cells_body(column = 1,row = 2))
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "red"),cell_text(color = "white")),
+    locations = list(cells_column_labels("UNSAFE"),
+                     cells_body(column = 1,row = 3))
+  ) |>
+  # color Truth labels
+  tab_style(
+    style = list(cell_fill(color = "green"),cell_text(color = "black")),
+    locations = cells_stub("SAFE")
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "yellow"),cell_text(color = "black")),
+    locations = cells_stub("CAUTION")
+  ) |>
+  tab_style(
+    style = list(cell_fill(color = "red"),cell_text(color = "white")),
+    locations = cells_stub("UNSAFE")
+  ) |>
+  grand_summary_rows(
+    fns = list(id="Total",label = "Total") ~ sum(.)
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = list(cells_body(columns = 1),
+                     cells_column_labels(),
+                     cells_column_spanners(),
+                     cells_title(),
+                     cells_stub(),
+                     cells_stubhead(),
+                     cells_stub_grand_summary(rows = "Total"))
+  )
+
+
+
+
+
 # plot a ROC curve
 wq_pred_cl |>
   roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
@@ -477,3 +542,11 @@ wq_pred_cl |>
   coord_equal() +
   theme_bw()
 
+wq_pred_cl |>
+  roc_auc(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE)
+
+wq_pred_cl |>
+  roc_auc(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimator = "macro_weighted")
+
+wq_pred_cl |>
+  metrics(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimate = .pred_class)
