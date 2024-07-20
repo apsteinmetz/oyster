@@ -1,0 +1,298 @@
+---
+title: "Exploring BOP WQ Data"
+author: "Art Steinmetz"
+date: "2024-07-20"
+format: typst
+execute:
+  message: false
+  error: true
+  warning: false
+  eval: true
+  echo: false
+---
+
+```{r load libraries, message = FALSE, warning = FALSE, echo = FALSE}
+library(tidyverse)
+library(tidymodels)
+library(duckplyr)
+library(skimr)
+library(gt)
+library(here)
+source(here("R/pretty_truth_table.R"))
+rlang::local_options(duckdb.materialize_message = FALSE)
+wq <- df_from_parquet(here("data/wq_model_data.parquet")) |>
+  # remove rows with missing data
+  remove_missing() |>
+  as_tibble()
+wq_data_4 <- df_from_parquet(here("data/wq_data_4.parquet")) |>
+  as_tibble()
+
+methods_restore()
+
+# quality labels
+SAFE <- 35
+DANGER <- 104
+
+```
+
+## Predicting Enterococci Levels in NYC Harbor
+
+This document explores the relationship between weather, tides and water quality in the NYC Harbor. The data sources are the Billion Oyster Project (BOP), the Citizens' Water Quality Testing Program and the NOAA.
+
+This note is an update of a previous exploration of the data where I showed that a linear regression model was a very poor explainer of bacteria levels in New York Harbor water. In this note I set a lower bar by classifying bacteria into just three classes, "safe," (\<=35 colonies) "caution" (\<= 104 colonies) and "unsafe" (\> 104 colonies). I train a "random forest" machine learning model on a subsample of the data and then evaluate the model with a different test set of data.
+
+In summary, this model works very well in fitting the training set but does much worse out of sample. The model does show good accuracy in predicting "safe" and "unsafe" water but very little accuracy in predicting bacteria levels in the "caution" range. The dominant predictor is the testing site, since several sites NEVER have "safe" water in the data set. No other variable stands out in significance.
+
+This is not an academic-quality study. It is an exploration of the data. I am not a water quality expert or a professional statistician. Comments and criticism are welcome.
+
+## Data
+
+The main data source is the BOP water quality spreadsheet found here: [BOP Water Quality Data](https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?gid=1924583806#gid=1924583806) I also used the NOAA data site for tide, temperature and rainfall data.
+
+## Feature Engineering
+
+The BOP data includes time of last high tide. I thought I could get more granular by imputing the direction and strength of the tidal current at the time of the water sample. I used the NOAA tide data to find the previous slack tide time and level, then the next slack tide time and level.By determining where in the tide phase the sample was taken and the total change in water level for that phase, I impute the direction and strength of the tidal current when the sample was taken using this formula:
+
+$$
+CurrentSpeed = HighLowRangeFt * sin(\pi * \frac{HoursSinceLastTide}{TideDurationHrs})
+$$
+
+So the further we are from a slack tide, high or low, the faster the current will be. The bigger the change in water level during a tidal phase, the stronger the current will be. Ebb tides are negative values, flood tides are positive. *CurrentSpeed* is an index so the units don't have a specific meaning like feet-per-second.
+
+I get the tides from the closest NOAA tide station to each water sampling site. Where the location of the sampling site is not known, I default to the Battery tide station at the bottom of Manhattan. This occurs when the name of the sampling site does not agree with any site name in the location meta data. **There are significant number of such cases.**
+
+The city of New York uses 48-hour rainfall amounts in its safety criteria so that is what I use as the precipitation variable.
+
+The BOP data does not include temperature. I used the NOAA Central Park temperature for each sample day as a data feature. This is a (not very good) proxy for the water temperature but also for seasonality. This allows seasonality to be a continuous variable. Otherwise, "month" would be a categorical variable.
+
+In the end I chose to the following features: `Site`, `TideHighLowRange`, `HoursSinceLastTide`, `CurrentSpeed`, `48-HourPrecip` and `Temperature`.
+
+## Data Exploration
+
+The bacteria levels are distributed in a lopsided way. The extreme high level is effectively infinity and conveys little information. Values above 5000 are only 5% of the observations and values below 500 are 82% of the observations.
+
+```{r bacteria hist}
+
+wq_rf_prep_cl <- wq |>
+  ungroup() |>
+  # create a 3 level factor
+  mutate(bacteria_category = cut(bacteria, breaks = c(0, 35,104, Inf), labels = c("SAFE", "CAUTION", "UNSAFE"))) |>
+  select(-bacteria) |>
+  select(-precip_noaa) |>
+  select(-precip_wk) |>
+  separate(site,into = "body",remove = FALSE,extra = "drop") |>
+  # convert all char columns to factors
+  mutate_if(is.character,as.factor) |>
+  # select(-site) |>
+  select(-body) |>
+  drop_na()
+
+wq |> pivot_longer(bacteria) |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30, fill = "blue") +
+  labs(title = "Distribution of Bacteria Concentrations",
+       x = "Bacteria Concentration",
+       y = "Frequency") +
+  theme_minimal()
+
+```
+If we group the bacteria levels according to the official quality standards we get a better behaved distribution.
+
+```{r class hist}
+wq_rf_prep_cl |>
+  group_by(bacteria_category) |>
+  summarise(n = n()) |>
+  ggplot(aes(x = bacteria_category, y = n)) +
+  geom_col(fill = "blue") +
+  labs(title = "Distribution of Bacteria Categories",
+       x = "Bacteria Category",
+       y = "Frequency")
+
+```
+
+What are the distributions of all the variables? Note the tide level distribution are the levels at just the high and low tides.
+
+```{r}
+# plot histograms of all variables using ggplot
+wq_rf_prep_cl |>
+  ungroup() |>
+  select(-site,-bacteria_category) |>
+  gather() |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins=20,fill = "blue") +
+  facet_wrap(~key, scales = "free")
+```
+
+What are the cleanest and most contaminated sites?
+
+```{r}
+median_all <- median(wq$bacteria)
+# show a violin plot of bacteria concentration by site
+wq |>
+  mutate(bacteria = log(bacteria)) |> 
+  group_by(site) |>
+  nest() |>
+  ungroup() |>
+  mutate(n_obs = map_int(data, nrow)) |>
+  # get median of bacteria concentrations for each site
+  mutate(median_bacteria = map_dbl(data, ~median(.x$bacteria))) |>
+  filter(n_obs > 100) |>
+  slice_max(median_bacteria,n = 10)|>
+  unnest(data) |>
+  ggplot(aes(x = factor(site), y = bacteria)) +
+  geom_violin(draw_quantiles = .5) +
+  geom_jitter(width = .1) +
+  # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+
+  labs(title = "Worst Sites for Bacteria Count",
+       x = "Site",
+       y = "Log Bacteria Concentration") +
+  coord_flip() + 
+  geom_hline(yintercept = log(SAFE),color="red",linewidth=2) + 
+  annotate("label", x = 10, y = 2.6, label = "Safe\nLevel", color = "red")
+
+```
+
+```{r}
+#best sites
+wq |>
+  mutate(bacteria = log(bacteria)) |> 
+  group_by(site) |>
+  nest() |>
+  ungroup() |>
+  mutate(n_obs = map_int(data, nrow)) |>
+  # get median of bacteria concentrations for each site
+  mutate(median_bacteria = map_dbl(data, ~median(.x$bacteria))) |>
+  filter(n_obs > 100) |>
+  slice_min(median_bacteria,n = 10)|>
+  unnest(data) |>
+  ggplot(aes(x = factor(site), y = bacteria)) +
+  geom_violin(draw_quantiles = .5) +
+  geom_jitter(width = .1) +
+  # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+
+  labs(title = "Worst Sites for Bacteria Count",
+       x = "Site",
+       y = "Log Bacteria Concentration") +
+  coord_flip() + 
+  geom_hline(yintercept = log(SAFE),color="red",linewidth=2) + 
+  annotate("label", x = 10, y = 3, label = "Safe\nLevel", color = "red")
+```
+
+What is obvious is that even the cleanest sites have a lot of variation in bacteria levels. This might give us some hope that environmental factors might be more important than location in predicting bacteria levels.
+
+Now let's look at some trends over time. Sadly, the overall level of bacteria has not improved over time. Looking at temperature, there are no clear trends. There are a couple years where a lot of rainfall seems associated with more bacteria but other years contradict that.
+
+```{r}
+rain_axis = 2.5
+wq_data_4 |>
+  filter(year > 2011) |>
+  summarise(.by = year, median_bacteria = median(bacteria),
+            median_temp = median(temperature_noaa),
+            "total_rainfall" = mean(precip_wk)*20*rain_axis) |>
+  ggplot(aes(x = year, y = median_bacteria)) + geom_col(fill = "lightblue") +
+  # geom_smooth(aes(x = year, y = median_bacteria),color = "black",se = FALSE) +
+  geom_line(aes(x = year, y = median_temp), color = "red") +
+  geom_line(aes(x = year, y = total_rainfall), color = "blue") +
+  # label the y-axes
+  scale_x_continuous(breaks = seq(2000,2024,1)) +
+  # put totat_rainfall on secondary y-axis
+  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Total Rainfall (Blue Line")) +
+  labs(y = "Median Bacteria Concentration\nand Temperature (Red Line)",
+       title= str_to_title("water is not getting cleaner over time"),
+       subtitle = "May-September, 2012-2024")
+
+```
+
+## Modeling
+
+To use the random forest model we split the data randomly into a training set and a test set. 75% is used for training and the rest we hold out for testing. The sets are stratified so the same proportion of each bacteria category is in each set. The model is tuned using cross-validation on the training set. The model is then evaluated on the test set.
+
+## Results
+
+The simplest way to evaluate the model is to look at the confusion matrix. This is a table that shows the number of correct and incorrect predictions for each category. In a perfect model the diagonal would be all the observations and the off-diagonal counts would all be zero. The table below shows that out of 818 "SAFE" observations, the model predicted 492, or 60% (492/818), correctly. On the other hand, in 7% of all the cases, the model predicted the water was "SAFE" when the actual was "UNSAFE" (176/2544)  The model is far better at predicting "SAFE" and "UNSAFE" than "CAUTION."
+
+```{r}
+# show a confusion matrix
+load(here("data/wq_pred_final.rdata"))
+xt <- wq_pred_final |>
+  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Truth) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+xt_count <- xt |>
+  select(-.prop) |>
+  pivot_wider(names_from = Prediction,values_from = n) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+gt_domain <- xt_count |> select(-Total,-Truth) |> max()
+
+xt_prop <- xt |>
+  select(-n) |>
+  pivot_wider(names_from = Prediction,values_from = .prop) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+# truth_table(xt_prop,"prop")
+truth_table(xt_count,"count")
+```
+
+```{r}
+
+# show variable importance
+load(here("data/var_imp.rdata"))
+
+var_imp |> 
+  ggplot(aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_col(fill = "blue") +
+  coord_flip() +
+  labs(title = "Water Quality Variable Importance",
+       subtitle = 'Contribution to Random Forest Classifier\nto Predict "SAFE", "CAUTION" or "UNSAFE ',
+       x = "Variable") +
+  theme_minimal()
+```
+The "Receiver Operator Curve" visualizes how much better than model is than random chance. Curves that bend up and to the left are better.  Overall the "Kappa" statistic of the model is about 30 percentage points better than random chance, but as we see the model is barely better than random chance in predicting "CAUTION" levels of bacteria.
+
+```{r}
+wq_pred_final |>
+  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  labs(title = "Is The Model Better Than Random Chance?",
+       subtitle = "ROC Curve for Random Forest Classifier",
+       x = "1 - Specificity",
+       y = "Sensitivity",
+       color = "Prediction") +
+  scale_color_manual(values = c("orange", "green","red")) +
+  # annotate to label better and worse than chance
+  annotate("text",label = "Random Chance",
+           x = .5, y = .5,
+           color = "black",
+           angle = 45, hjust = .5, vjust = 1.5) +
+  theme_bw()
+
+```
+```{r}
+# plot prediction confidence
+wq_pred_final |>
+  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(title = "Model Prediction Confidence",
+       x = "Confidence Actual Is SAFE",
+       y = "Confidence Actual Is UNSAFE")
+
+```
+## Conclusion
+
+As I mentioned above, understanding point sources of pollution around each site might be more fruitful.

@@ -16,12 +16,13 @@ library(tidyverse)
 library(duckplyr)
 library(skimr)
 library(gt)
+library(here)
 rlang::local_options(duckdb.materialize_message = FALSE)
-wq <- df_from_parquet("../data/wq_model_data.parquet") |>
+wq <- df_from_parquet(here("data/wq_model_data.parquet")) |>
   # remove rows with missing data
   remove_missing() |>
   as_tibble()
-wq_data_4 <- df_from_parquet("../data/wq_data_4.parquet") |>
+wq_data_4 <- df_from_parquet(here("data/wq_data_4.parquet")) |>
   as_tibble()
 
 methods_restore()

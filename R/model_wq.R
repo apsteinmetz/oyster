@@ -3,10 +3,12 @@ library(tidyverse)
 library(duckplyr)
 library(skimr)
 library(tidymodels)
+library(yardstick)
 library(vip)
 library(gt)
+library(rayshader)
 
-
+source("r/pretty_gt_confusion.R")
 # read in the data -------------------------------------------------------------
 wq <- df_from_parquet("data/wq_model_data.parquet") |>
   # remove rows with missing data
@@ -306,6 +308,7 @@ wq_pred |>
        y = "Frequency")
 
 
+
 # try a classifier model -------------------------------------------------------
 
 wq_rf_prep_cl <- wq |>
@@ -323,6 +326,21 @@ wq_rf_prep_cl <- wq |>
   drop_na()
 
 skim(wq_rf_prep_cl)
+
+# get proportion of UNSAFE rows grouped by site
+temp <- wq_rf_prep_cl |>
+  group_by(site) |>
+  summarise(UNSAFE = sum(bacteria_category == "UNSAFE")/n()) |>
+  arrange(desc(UNSAFE))
+# show disbribution of bacteria categories
+wq_rf_prep_cl |>
+  group_by(bacteria_category) |>
+  summarise(n = n()) |>
+  ggplot(aes(x = bacteria_category, y = n)) +
+  geom_col(fill = "blue") +
+  labs(title = "Distribution of Bacteria Categories",
+       x = "Bacteria Category",
+       y = "Frequency")
 
 wq_recipe_cl <- recipe(bacteria_category ~ ., data = wq_rf_prep_cl) |>
   step_normalize(all_numeric_predictors())
@@ -441,79 +459,6 @@ xt_prop <- xt |>
   rowwise() |>
   mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
 
-# MAKE A PRETTY TABLE ----------------------------------------------------------
-
-truth_table <- function(xt,type = c("count")){
-  gt_xt <- xt |>
-  gt(rowname_col = "Truth") |>
-  tab_header(title = "Truth Table") |>
-  tab_spanner(label = "Prediction", columns = where(is.numeric)) |>
-  # add stub header label
-  tab_stubhead(label = "Truth")
-
-  if(type == "prop"){
-    gt_xt <- gt_xt |> fmt_percent(columns = where(is.numeric),decimals = 0)
-  } else {
-    gt_xt <- gt_xt |> fmt_number(columns = where(is.numeric),decimals = 0) |>
-      grand_summary_rows(
-        fns = list(id="Total",label = "Total") ~ sum(.)
-
-      ) |>
-      tab_style(
-        style = cell_text(weight = "bold"),
-        locations = list(cells_stub_grand_summary(rows = "Total"))
-      )
-
-  }
-  # fmt_number(columns = where(is.numeric),decimals = 0) |>
-  # fmt_percent(columns = where(is.numeric),decimals = 0) |>
-  # color the cells with a heat map
-  gt_xt <- gt_xt |>
-  data_color(columns = 2:4,
-             direction = c("row"),
-             domain = c(0,if_else(type == "count",gt_domain,1)),
-             method = "numeric",
-             palette = "Blues") |>
-  # color prediction labels
-  tab_style(
-    style = list(cell_fill(color = "green"),cell_text(color = "black")),
-    locations = list(cells_column_labels("SAFE"),
-                     cells_body(column = 1,row = 1))
-  ) |>
-  tab_style(
-    style = list(cell_fill(color = "yellow"),cell_text(color = "blaCk")),
-    locations = list(cells_column_labels("CAUTION"),
-                     cells_body(column = 1,row = 2))
-  ) |>
-  tab_style(
-    style = list(cell_fill(color = "red"),cell_text(color = "white")),
-    locations = list(cells_column_labels("UNSAFE"),
-                     cells_body(column = 1,row = 3))
-  ) |>
-  # color Truth labels
-  tab_style(
-    style = list(cell_fill(color = "green"),cell_text(color = "black")),
-    locations = cells_stub("SAFE")
-  ) |>
-  tab_style(
-    style = list(cell_fill(color = "yellow"),cell_text(color = "black")),
-    locations = cells_stub("CAUTION")
-  ) |>
-  tab_style(
-    style = list(cell_fill(color = "red"),cell_text(color = "white")),
-    locations = cells_stub("UNSAFE")
-  )  |>
-  tab_style(
-    style = cell_text(weight = "bold"),
-    locations = list(cells_body(columns = 1),
-                     cells_column_labels(),
-                     cells_column_spanners(),
-                     cells_title(),
-                     cells_stub(),
-                     cells_stubhead())
-  )
-  return(gt_xt)
-}
 
 truth_table(xt_prop,"prop")
 
@@ -606,10 +551,11 @@ regular_res %>%
   filter(.metric == "roc_auc") %>%
   mutate(min_n = factor(min_n)) %>%
   ggplot(aes(mtry, mean, color = min_n)) +
-  geom_line(alpha = 0.5, size = 1.5) +
+  geom_line(alpha = 0.5, linewidth = 1.5) +
   geom_point() +
   labs(y = "AUC")
 
+# chose best model
 best_auc <- select_best(regular_res, "roc_auc")
 
 final_rf <- finalize_model(
@@ -617,6 +563,125 @@ final_rf <- finalize_model(
   best_auc
 )
 
-final_rf
+wq_wf_final <- workflow() |>
+  add_model(final_rf) |>
+  add_recipe(wq_recipe_cl)
+
+wq_fit_final <- wq_wf_final |>
+  fit(data = wq_train)
 
 
+var_imp <- vip::vi(wq_fit_final)
+save(var_imp, file = "data/var_imp.rdata")
+
+# show variable importance
+wq_fit_final |>
+  extract_fit_parsnip() |>
+  vip::vip(aesthetics = list(fill = "blue")) +
+  labs(title = "Water Quality Variable Importance",
+       subtitle = 'Random Forest Classifier to Predict "SAFE", "CAUTION" or "UNSAFE ') +
+  theme_minimal()
+
+wq_pred_final <- wq_fit_final |>
+  augment(new_data = wq_test)
+
+# plot prediction confidence
+wq_pred_final |>
+  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  labs(title = "Prediction Confidence",
+       x = "Probablility Actual Is SAFE",
+       y = "Probablility Actual Is UNSAFE")
+
+# show a confusion matrix
+xt <- wq_pred_final |>
+  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Truth) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+xt_count <- xt |>
+  select(-.prop) |>
+  pivot_wider(names_from = Prediction,values_from = n) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+gt_domain <- xt_count |> select(-Total,-Truth) |> max()
+
+xt_prop <- xt |>
+  select(-n) |>
+  pivot_wider(names_from = Prediction,values_from = .prop) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+truth_table(xt_prop,"prop")
+truth_table(xt_count,"count")
+
+wq_pred_final |>
+  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  labs(title = "Is The Model Better Than Random Chance?",
+       subtitle = "ROC Curve for Random Forest Classifier",
+       x = "1 - Specificity",
+       y = "Sensitivity",
+       color = "Prediction") +
+  scale_color_manual(values = c("orange", "green","red")) +
+  # annotate to label better and worse than chance
+  annotate("text",label = "Random Chance",
+           x = .5, y = .5,
+           color = "black",
+           angle = 45, hjust = .5, vjust = 1.5) +
+  theme_bw()
+
+wq_pred_final |>
+  metrics(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimate = .pred_class)
+
+# pretty 3d heat map
+gg <- xt %>%
+  mutate(Truth = factor(Truth, levels = c("SAFE", "CAUTION", "UNSAFE"))) %>%
+  mutate(Prediction = factor(Prediction, levels = c("SAFE", "CAUTION", "UNSAFE"))) %>%
+  ggplot(aes(Truth,Prediction,fill=.prop)) + geom_tile(color = "black") +
+  labs(title = "Water Quality Predictions",
+       x = "True Quality Level ",
+       y= "Predicted Quality Level",
+       caption = "Billion Oyster Project") +
+  scale_fill_gradient(low = "lightblue",high = "blue") +
+  theme(plot.background = element_rect(fill = "white", color = NA),
+        legend.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+
+gg
+
+render_confusion <-  function(theta = 45, sunangle = 315) {
+    print(sunangle)
+    shadow_matrix <-
+      plot_gg(
+        gg,
+        width = 7,
+        height = 7,
+        multicore = TRUE,
+        sunangle = sunangle,
+        scale = 200,
+        zoom = .75,
+        phi = 65,
+        theta = theta,
+        windowsize = c(800, 800)
+      )
+    return(shadow_matrix)
+  }
+
+orig_shadow = render_confusion(20)
+render_snapshot()
+render_snapshot(file = "img/3d_confusion.png")
