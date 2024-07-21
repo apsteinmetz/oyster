@@ -39,7 +39,7 @@ DANGER <- 104
 
 This document explores the relationship between weather, tides and water quality in the NYC Harbor. The data sources are the Billion Oyster Project (BOP), the Citizens' Water Quality Testing Program and the NOAA.
 
-This note is an update of a previous exploration of the data where I showed that a linear regression model was a very poor explainer of bacteria levels in New York Harbor water. In this note I set a lower bar by classifying bacteria into just three classes, "safe," (\<=35 colonies) "caution" (\<= 104 colonies) and "unsafe" (\> 104 colonies). I train a "random forest" machine learning model on a subsample of the data and then evaluate the model with a different test set of data.
+This note is an update of a previous exploration of the data where I showed that a linear regression model was a very poor explainer of bacteria levels in New York Harbor water. In this note I set a lower bar by classifying bacteria into just three classes, "safe," (\<=35 colonies) "caution" (\<= 104 colonies) and "unsafe" (\> 104 colonies). I train a "random forest" machine learning model on a sub-sample of the data and then evaluate the model with a different test set of data.
 
 In summary, this model works very well in fitting the training set but does much worse out of sample. The model does show good accuracy in predicting "safe" and "unsafe" water but very little accuracy in predicting bacteria levels in the "caution" range. The dominant predictor is the testing site, since several sites NEVER have "safe" water in the data set. No other variable stands out in significance.
 
@@ -47,7 +47,9 @@ This is not an academic-quality study. It is an exploration of the data. I am no
 
 ## Data
 
-The main data source is the BOP water quality spreadsheet found here: [BOP Water Quality Data](https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?gid=1924583806#gid=1924583806) I also used the NOAA data site for tide, temperature and rainfall data.
+The main data source is the BOP water quality spreadsheet found here: [[BOP Water Quality Data]{.underline}](https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?gid=1924583806#gid=1924583806)[^1] I also used the NOAA data site for tide, temperature and rainfall data.
+
+[^1]: <https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?gid=1924583806#gid=1924583806>
 
 ## Feature Engineering
 
@@ -96,6 +98,7 @@ wq |> pivot_longer(bacteria) |>
   theme_minimal()
 
 ```
+
 If we group the bacteria levels according to the official quality standards we get a better behaved distribution.
 
 ```{r class hist}
@@ -171,7 +174,7 @@ wq |>
   geom_jitter(width = .1) +
   # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
 
-  labs(title = "Worst Sites for Bacteria Count",
+  labs(title = "Cleanest Sites for Bacteria Count",
        x = "Site",
        y = "Log Bacteria Concentration") +
   coord_flip() + 
@@ -210,7 +213,7 @@ To use the random forest model we split the data randomly into a training set an
 
 ## Results
 
-The simplest way to evaluate the model is to look at the confusion matrix. This is a table that shows the number of correct and incorrect predictions for each category. In a perfect model the diagonal would be all the observations and the off-diagonal counts would all be zero. The table below shows that out of 818 "SAFE" observations, the model predicted 492, or 60% (492/818), correctly. On the other hand, in 7% of all the cases, the model predicted the water was "SAFE" when the actual was "UNSAFE" (176/2544)  The model is far better at predicting "SAFE" and "UNSAFE" than "CAUTION."
+The simplest way to evaluate the model is to look at the confusion matrix. This is a table that shows the number of correct and incorrect predictions for each category. In a perfect model the diagonal would be all the observations and the off-diagonal counts would all be zero. The table below shows that out of 818 "SAFE" observations, the model predicted 492, or 60% (492/818), correctly. On the other hand, in 7% of all the cases, the model predicted the water was "SAFE" when the actual was "UNSAFE" (176/2544) The model is far better at predicting "SAFE" and "UNSAFE" than "CAUTION."
 
 ```{r}
 # show a confusion matrix
@@ -256,7 +259,8 @@ var_imp |>
        x = "Variable") +
   theme_minimal()
 ```
-The "Receiver Operator Curve" visualizes how much better than model is than random chance. Curves that bend up and to the left are better.  Overall the "Kappa" statistic of the model is about 30 percentage points better than random chance, but as we see the model is barely better than random chance in predicting "CAUTION" levels of bacteria.
+
+The "Receiver Operator Curve" visualizes how much better than model is than random chance. Curves that bend up and to the left are better. Overall the "Kappa" statistic of the model is about 30 percentage points better than random chance, but as we see the model is barely better than random chance in predicting "CAUTION" levels of bacteria.
 
 ```{r}
 wq_pred_final |>
@@ -279,6 +283,7 @@ wq_pred_final |>
   theme_bw()
 
 ```
+
 ```{r}
 # plot prediction confidence
 wq_pred_final |>
@@ -293,6 +298,7 @@ wq_pred_final |>
        y = "Confidence Actual Is UNSAFE")
 
 ```
+
 ## Conclusion
 
 As I mentioned above, understanding point sources of pollution around each site might be more fruitful.
