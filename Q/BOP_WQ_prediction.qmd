@@ -96,7 +96,7 @@ wq |> pivot_longer(bacteria) |>
   geom_histogram(bins = 30, fill = "lightblue") +
   labs(title = "Distribution of Bacteria Concentrations",
        x = "Bacteria Concentration",
-       y = "Frequency") +
+       y = "Count") +
   theme_minimal()
 
 ```
@@ -111,7 +111,7 @@ wq_rf_prep_cl |>
   geom_col(fill = "lightblue") +
   labs(title = "Distribution of Bacteria Categories",
        x = "Bacteria Category",
-       y = "Frequency") + 
+       y = "Count") + 
   theme_minimal()
 
 ```
@@ -127,6 +127,8 @@ wq_rf_prep_cl |>
   ggplot(aes(x = value)) +
   geom_histogram(bins=20,fill = "lightblue") +
   facet_wrap(~key, scales = "free") + 
+  labs(title = "Distribution of All Variables",
+       y = "Count",x="") +
   theme_minimal()
 ```
 
@@ -215,9 +217,9 @@ wq_data_4 |>
   scale_x_continuous(breaks = seq(2000,2024,1)) +
   # put totat_rainfall on secondary y-axis
   scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Total Rainfall (Blue Line")) +
-  labs(y = "Median Bacteria Concentration\nand Temperature (Red Line)",
+  labs(y = "Median Bacteria Concentration (Blue Bar)\nand Temperature (Red Line)",
        title= str_to_title("water is not getting cleaner over time"),
-       subtitle = "May-September, 2012-2024") + 
+       subtitle = "October 2011 - May 2024") + 
   theme_minimal()
 
 ```
