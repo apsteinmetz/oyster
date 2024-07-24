@@ -7,8 +7,10 @@ library(yardstick)
 library(vip)
 library(gt)
 library(rayshader)
+library(here)
+library(car)
 
-source("r/pretty_gt_confusion.R")
+source(here("r/pretty_truth_table.R"))
 # read in the data -------------------------------------------------------------
 wq <- df_from_parquet("data/wq_model_data.parquet") |>
   # remove rows with missing data
@@ -367,6 +369,8 @@ wq_fit_cl |>
 wq_pred_cl <- wq_fit_cl |>
   augment(new_data = wq_rf_prep_cl)
 
+save(wq_pred_cl, file = "data/wq_overfit_cl.rdata")
+
 # show a confusion matrix
 wq_pred_cl |>
   conf_mat(truth = bacteria_category, estimate = .pred_class)
@@ -380,9 +384,21 @@ wq_pred_cl |>
   coord_equal() +
   theme_bw()
 
+# plot prediction confidence
+wq_pred_cl |>
+  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  facet_wrap(~bacteria_category) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  labs(title = "Prediction Confidence",
+       subtitle = "Using Full Data Set - Causing Overfitting",
+       x = "Probablility Actual Is SAFE",
+       y = "Probablility Actual Is UNSAFE")
 
 
-# separate wq_rf_prep_cl into training and testing sets
+
+# separate wq_rf_prep_cl into training and testing sets ------------------------
 set.seed(123)
 wq_split <- initial_split(wq_rf_prep_cl, prop = 0.75, strata = bacteria_category)
 wq_train <- training(wq_split)
@@ -428,10 +444,285 @@ wq_pred_cl <- wq_fit_cl |>
 # plot prediction confidence
 wq_pred_cl |>
   ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  facet_wrap(~bacteria_category) +
   geom_point() +
   geom_abline() +
   scale_color_manual(values = c("green", "orange","red")) +
   labs(title = "Prediction Confidence",
+       subtitle = "Using Full Data Set - Causing Overfitting",
+       x = "Probablility Actual Is SAFE",
+       y = "Probablility Actual Is UNSAFE")
+
+# show a confusion matrix
+xt <- wq_pred_cl |>
+  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Truth) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+xt_count <- xt |>
+  select(-.prop) |>
+  pivot_wider(names_from = Prediction,values_from = n) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+gt_domain <- xt_count |> select(-Total,-Truth) |> max()
+
+xt_prop <- xt |>
+  select(-n) |>
+  pivot_wider(names_from = Prediction,values_from = .prop) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+
+truth_table(xt_prop,"prop")
+
+# plot a ROC curve
+wq_pred_cl |>
+  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  theme_bw()
+
+wq_pred_cl |>
+  roc_auc(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE)
+
+wq_pred_cl |>
+  roc_auc(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimator = "macro_weighted")
+
+wq_pred_cl |>
+  metrics(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimate = .pred_class)
+
+
+# Now create a tuned model -----------------------------------------------------
+
+tune_spec <- rand_forest(
+  mtry = tune(),
+  trees = 1000,
+  min_n = tune()) |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+tune_wf <- workflow() %>%
+  add_recipe(wq_recipe_cl) %>%
+  add_model(tune_spec)
+
+set.seed(234)
+wq_folds <- vfold_cv(wq_train)
+
+doParallel::registerDoParallel()
+
+set.seed(345)
+tune_res <- tune_grid(
+  tune_wf,
+  resamples = wq_folds,
+  grid = 20
+)
+
+tune_res
+
+tune_res %>%
+  collect_metrics() %>%
+  filter(.metric == "roc_auc") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+               values_to = "value",
+               names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "AUC")
+
+rf_grid <- grid_regular(
+  mtry(range = c(3, 5)),
+  min_n(range = c(20, 26)),
+  levels = 5
+)
+
+rf_grid
+
+set.seed(456)
+regular_res <- tune_grid(
+  tune_wf,
+  resamples = wq_folds,
+  grid = rf_grid
+)
+
+regular_res
+
+regular_res %>%
+  collect_metrics() %>%
+  filter(.metric == "roc_auc") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, linewidth = 1.5) +
+  geom_point() +
+  labs(y = "AUC")
+
+# chose best model
+best_auc <- select_best(tune_res, "roc_auc")
+
+
+final_rf <- finalize_model(
+  tune_spec,
+  best_auc
+)
+
+
+wq_wf_final <- workflow() |>
+  add_model(final_rf) |>
+  add_recipe(wq_recipe_cl)
+
+wq_fit_final <- wq_wf_final |>
+  fit(data = wq_train)
+
+
+var_imp <- vip::vi(wq_fit_final)
+save(var_imp, file = "data/var_imp.rdata")
+
+# show variable importance
+wq_fit_final |>
+  extract_fit_parsnip() |>
+  vip::vip(aesthetics = list(fill = "blue")) +
+  labs(title = "Water Quality Variable Importance",
+       subtitle = 'Random Forest Classifier to Predict "SAFE", "CAUTION" or "UNSAFE ') +
+  theme_minimal()
+
+wq_pred_final <- wq_fit_final |>
+  augment(new_data = wq_test)
+
+# plot prediction confidence
+wq_pred_final |>
+  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  facet_wrap(~bacteria_category) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  labs(title = "Prediction Confidence",
+       x = "Probablility Actual Is SAFE",
+       y = "Probablility Actual Is UNSAFE")
+
+# show a confusion matrix
+xt <- wq_pred_final |>
+  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Truth) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+xt_count <- xt |>
+  select(-.prop) |>
+  pivot_wider(names_from = Prediction,values_from = n) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+gt_domain <- xt_count |> select(-Total,-Truth) |> max()
+
+xt_prop <- xt |>
+  select(-n) |>
+  pivot_wider(names_from = Prediction,values_from = .prop) |>
+  rowwise() |>
+  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+
+truth_table(xt_prop,"prop")
+truth_table(xt_count,"count")
+
+wq_pred_final |>
+  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  labs(title = "Is The Model Better Than Random Chance?",
+       subtitle = "ROC Curve for Random Forest Classifier",
+       x = "1 - Specificity",
+       y = "Sensitivity",
+       color = "Prediction") +
+  scale_color_manual(values = c("orange", "green","red")) +
+  # annotate to label better and worse than chance
+  annotate("text",label = "Random Chance",
+           x = .5, y = .5,
+           color = "black",
+           angle = 45, hjust = .5, vjust = 1.5) +
+  theme_bw()
+
+wq_pred_final |>
+  metrics(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimate = .pred_class)
+
+# TRY LEAVING OUT THE "SITE" INPUT ---------------------------------------------
+
+wq_rf_prep_cl <- wq |>
+  ungroup() |>
+  # create a 3 level factor
+  mutate(bacteria_category = cut(bacteria, breaks = c(0, 35,104, Inf), labels = c("SAFE", "CAUTION", "UNSAFE"))) |>
+  select(-bacteria) |>
+  select(-precip_noaa) |>
+  select(-precip_wk) |>
+  separate(site,into = "body",remove = FALSE,extra = "drop") |>
+  # convert all char columns to factors
+  mutate_if(is.character,as.factor) |>
+  select(-site) |>
+  select(-body) |>
+  drop_na()
+
+skim(wq_rf_prep_cl)
+
+# separate wq_rf_prep_cl into training and testing sets ------------------------
+set.seed(123)
+wq_split <- initial_split(wq_rf_prep_cl, prop = 0.75, strata = bacteria_category)
+wq_train <- training(wq_split)
+wq_test <- testing(wq_split)
+
+# conform strata of bacteria_category in the test set to the training set
+skim(wq_train)
+skim(wq_test)
+ggplot(wq_train,aes(x = bacteria_category)) + geom_bar()
+ggplot(wq_test,aes(x = bacteria_category)) + geom_bar()
+
+# new recipe with just the training data
+wq_recipe_cl <- recipe(bacteria_category ~ ., data = wq_train) |>
+  step_normalize(all_numeric_predictors())
+
+wq_rf_model_cl <- rand_forest() |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+wq_wf <- workflow() |>
+  add_model(wq_rf_model_cl) |>
+  add_recipe(wq_recipe_cl)
+
+# fit with training data
+wq_fit_cl <- wq_wf |>
+  fit(data = wq_train)
+
+# show variable importance
+wq_fit_cl |>
+  pull_workflow_fit() |>
+  vip::vip(aesthetics = list(fill = "blue")) +
+  labs(title = "Water Quality Variable Importance",
+       subtitle = 'Random Forest Classifier to Predict "SAFE", "CAUTION" or "UNSAFE ') +
+  theme_minimal()
+
+wq_pred_cl <- wq_fit_cl |>
+  augment(new_data = wq_test)
+
+# plot prediction confidence
+wq_pred_cl |>
+  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  facet_wrap(~bacteria_category) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  labs(title = "Prediction Confidence",
+       subtitle = "Using Full Data Set - Causing Overfitting",
        x = "Probablility Actual Is SAFE",
        y = "Probablility Actual Is UNSAFE")
 
@@ -529,9 +820,10 @@ tune_res %>%
   facet_wrap(~parameter, scales = "free_x") +
   labs(x = NULL, y = "AUC")
 
+# chose tune range optically from plot above
 rf_grid <- grid_regular(
-  mtry(range = c(3, 5)),
-  min_n(range = c(20, 26)),
+  mtry(range = c(1, 2)),
+  min_n(range = c(32, 35)),
   levels = 5
 )
 
@@ -544,7 +836,9 @@ regular_res <- tune_grid(
   grid = rf_grid
 )
 
-regular_res
+# unused CV folds
+regular_res <- regular_res[1:7,]
+
 
 regular_res %>%
   collect_metrics() %>%
@@ -556,7 +850,7 @@ regular_res %>%
   labs(y = "AUC")
 
 # chose best model
-best_auc <- select_best(regular_res, "roc_auc")
+best_auc <- select_best(tune_res, "roc_auc")
 
 final_rf <- finalize_model(
   tune_spec,
@@ -588,6 +882,7 @@ wq_pred_final <- wq_fit_final |>
 # plot prediction confidence
 wq_pred_final |>
   ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = bacteria_category)) +
+  facet_wrap(bacteria_category ~ .) +
   geom_point() +
   geom_abline() +
   scale_color_manual(values = c("green", "orange","red")) +
@@ -643,6 +938,8 @@ wq_pred_final |>
 
 wq_pred_final |>
   metrics(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE,estimate = .pred_class)
+
+
 
 # pretty 3d heat map
 gg <- xt %>%

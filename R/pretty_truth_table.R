@@ -1,4 +1,5 @@
 # Function to MAKE A PRETTY GT TABLE ----------------------------------------------------------
+library(gt)
 
 truth_table <- function(xt,type = c("count")){
   gt_xt <- xt |>
