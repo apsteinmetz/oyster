@@ -1,4 +1,4 @@
-area,Name,Id,Lat,Lon,Predictions
+area,name,id,latitude,longitude,Predictions
 "Long Island Sound, north side",Rye Beach,8518091,40.9617,-73.6717,Harmonic
 "Long Island Sound, north side",New Rochelle,8518490,40.8933,-73.7817,Subordinate
 "Long Island Sound, north side","Throgs Neck, Fort Schuyler",8518526,40.805,-73.795,Harmonic

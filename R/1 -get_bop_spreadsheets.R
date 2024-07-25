@@ -117,6 +117,7 @@ wq_data <- wq_data_raw |>
   mutate(across(where(is.character), .fns = ~ na_if(.x, "N/A"))) %>%
   mutate(across(contains("precip"), as.numeric)) %>%
   # since observation time is typically in the morning don't include the current day's precip
+  # since we don't know if it came before, during or after collection
   mutate(precip_48 = rowSums(select(., precip_t1,precip_t2), na.rm = TRUE),.after="bacteria") |>
   mutate(bacteria = as.numeric(bacteria)) %>%
   mutate(notes = replace_na(notes, "")) %>%
@@ -129,7 +130,8 @@ wq_data <- wq_data_raw |>
       labels = c("Safe","Caution", "Unsafe"))
       )
     ) %>%
-  mutate(site = as.factor(site))
+  mutate(site = as.factor(site)) |>
+  mutate(site_id = as.factor(site_id))
 
 
 

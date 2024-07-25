@@ -4,6 +4,8 @@ library(dplyr)
 library(lubridate)
 library(purrr)
 library(arrow)
+library(sf)
+
 
 # devtools::install_github("ropensci/rnoaa")
 library(rnoaa)
@@ -16,6 +18,21 @@ UPDATE <- FALSE
 datatypeids <- c("TMIN","TMAX","PRCP")
 years= 2011:year(Sys.Date())
 
+
+# get NYC area stations
+
+# get station metadata from GHCN ---------------------------------------------------
+# ghcnd_station_raw <- ghcnd_stations()
+# save ghcnd_station_raw as parquet
+#write_parquet(ghcnd_station_raw, "ghcnd_station_raw.parquet")
+# read station metadata
+ghcnd_station_raw <- read_parquet("ghcnd_station_raw.parquet")
+ghcnd_stations <- ghcnd_station_raw %>%
+  filter(longitude > -75.5 & longitude < -73.5,
+         latitude > 40.5 & latitude < 41) |>
+  nest(elements = c(first_year,last_year,element))
+
+# import weather data from GHCN ---------------------------------------------------
 # default is Laguardia airport nyc
 # central park is GHCND:USW00094728
 central_park <- "USW00094728"
