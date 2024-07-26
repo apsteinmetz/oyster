@@ -7,6 +7,7 @@ library(rvest)
 library(duckdb)
 library(duckplyr)
 library(arrow)
+library(googlesheets4)
 methods_overwrite()
 source("r/func_get_nearest.R")
 
@@ -29,7 +30,7 @@ ghcnd_station_raw <- read_parquet("data/ghcnd_station_raw.parquet")
 ghcnd_stations <- read_parquet("data/ghcnd_stations_ny.parquet")
 
 # use only currently reporting stations
-gghcnd_stations <- ghcnd_stations |>
+ghcnd_stations <- ghcnd_stations |>
   filter(last_year == year(Sys.Date()))
 
 precip_stations <- ghcnd_stations %>%
@@ -53,7 +54,7 @@ wq_meta_2 <- wq_meta %>%
 stations_to_query  <- temperature_stations
 wq_meta_2 <- wq_meta_2 %>%
   mutate(nearest = get_nearest_v(latitude, longitude,include_dist = TRUE,label = "temperature_ghcn")) |>
-  unnest(nearest) |> unnest(nearest)
+  unnest(nearest)|> unnest(nearest)
 
 stations_to_query  <- precip_stations
 wq_meta_2 <- wq_meta_2 %>%
@@ -65,9 +66,24 @@ wq_meta_station_key <- wq_meta_2 %>%
 
 # save to parquet
 write_parquet(wq_meta_station_key,"data/wq_meta_station_key.parquet")
+wq_meta_station_key <- read_parquet("data/wq_meta_station_key.parquet")
 # write to a google sheet
 library(googlesheets4)
-googlesheets4::gs4_deauth()
+# googlesheets4::gs4_deauth()
 googlesheets4::gs4_auth(scopes = "spreadsheets")
-write_sheet(wq_meta_station_key,"wq_meta_station_key")
+
+tide_stations <- tide_stations |>
+  rename(tide_noaa_id = id) |>
+  semi_join(wq_meta_station_key, by = "tide_noaa_id")
+temperature_stations <- temperature_stations |>
+  rename(temperature_ghcn_id = id) |>
+  semi_join(wq_meta_station_key, by = "temperature_ghcn_id")
+precip_stations <- precip_stations |>
+  rename(precip_ghcn_id = id) |>
+  semi_join(wq_meta_station_key, by = "precip_ghcn_id")
+
+sheet_write(wq_meta_station_key,ss_stations,"wq_meta_station_key")
+sheet_write(tide_stations,ss_stations,"tide_stations")
+sheet_write(temperature_stations,ss_stations,"temperature_stations")
+sheet_write(precip_stations,ss_stations,"precip_stations")
 
