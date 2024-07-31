@@ -1,5 +1,6 @@
 # get tide data from noaa ----------------------------------
 # update existing data as needed
+# SETUP -----------------------------------
 library(tidyverse)
 library(lubridate)
 #library(rnoaa)
@@ -13,6 +14,14 @@ methods_overwrite()
 
 #  default station is the battery NYC
 battery <- "8518750"
+
+# get needed files
+wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
+wq_meta_station_key <- duckplyr_df_from_file("data/wq_meta_station_key.parquet","read_parquet")
+
+# load tide data retrieved previously
+tides_noaa <- duckplyr_df_from_file("data/tides_noaa.parquet","read_parquet")
+
 
 # functions to get tide data from NOAA -----------------------------------------
 get_json_response <- function(url) {
@@ -90,18 +99,9 @@ get_tide_data_noaa_year <- function(year=2011, station = "8518750"){
                             end_date = end_date))
 }
 
-# retrieve tide data for each combination of  observation date and station -----
-# get tide data for each date and station in wq_data_2
-# map() returns nothing if there is an error at any point.  Instead, this builds
-# data frame one iteration at a time, allowing a manual restart from
-# the last successful iteration. Change start_index to current value of n
 
-# get tide stations needed
-wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
-wq_meta_station_key <- duckplyr_df_from_file("data/wq_meta_station_key.parquet","read_parquet")
 
-# load tide data retrieved previously
-tides_noaa <- duckplyr_df_from_file("data/tides_noaa.parquet","read_parquet")
+# MAIN retrieve tide data for each combination of observation date and station -----
 
 # get all needed combinations of stations and dates
 needed_tides <- wq_meta_station_key %>%
@@ -123,6 +123,8 @@ new_tides <- get_tide_data_noaa(missing_tides$tide_noaa_id[1],
                                 end_date = missing_tides$date[1])
 
 # retrieve tide data from NOAA for missing stations and dates
+# to insure we get tide data that brackets the observation time, we get the
+# tide data for the day before the observation date as well.
 start_index = 1
 new_tides <- tibble()
 # we use a loop instead of map() so we can restart from the last successful iteration
