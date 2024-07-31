@@ -98,12 +98,18 @@ get_tide_data_noaa_year <- function(year=2011, station = "8518750"){
 # get tide stations needed
 wq_data_2 <- duckplyr_df_from_file("data/wq_data_2.parquet","read_parquet")
 wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
+wq_meta_station_key <- duckplyr_df_from_file("data/wq_meta_station_key.parquet","read_parquet")
+tides_noaa <- duckplyr_df_from_file("data/tides_noaa.parquet","read_parquet")
 
-needed_data <- wq_data_2 |>
-  select(date,closest_tide_Id,date) |>
-  filter(!is.na(closest_tide_Id)) |>
-  distinct() |>
-  arrange(date)
+needed_tides <- wq_meta_station_key %>%
+  select(site_id,tide_noaa_id) %>%
+  left_join(select(wq_data,site_id,date)) %>%
+  select(date,tide_noaa_id) %>%
+  distinct()
+
+# get dates needed not already in tide data
+needed_tides %>%
+  anti_join(tides__noaa)
 
 #test
 tides_noaa <- get_tide_data_noaa(wq_data_2$closest_tide_Id[1],begin_date = wq_data_2$date[1]-1,end_date = wq_data_2$date[1])
