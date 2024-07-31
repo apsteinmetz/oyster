@@ -6,14 +6,17 @@ library(purrr)
 library(arrow)
 library(sf)
 
-
 # devtools::install_github("ropensci/rnoaa")
+#assumes NOAA_KEY is in .renvir
 library(rnoaa)
 
-#assumes NOAA_KEY is in .renvir
+
+# get needed files
+wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
+wq_meta_station_key <- duckplyr_df_from_file("data/wq_meta_station_key.parquet","read_parquet")
 
 # get just an update or full history?
-UPDATE <- FALSE
+UPDATE <- TRUE
 
 datatypeids <- c("TMIN","TMAX","PRCP")
 years= 2011:year(Sys.Date())
@@ -32,7 +35,7 @@ ghcnd_stations <- ghcnd_station_raw %>%
          latitude > 40.5 & latitude < 41) |>
   nest(elements = c(first_year,last_year,element))
 
-# import weather data from GHCN ---------------------------------------------------
+# functions to import weather data from GHCN ---------------------------------------------------
 # default is Laguardia airport nyc
 # central park is GHCND:USW00094728
 central_park <- "USW00094728"
@@ -89,6 +92,16 @@ fix_raw_weather <- function(weather_raw) {
     # assume no rain if date is missing
     mutate(precipitation = ifelse(is.na(precipitation),0,precipitation))
 }
+# MAIN retrieve weather data for each combination of observation date and station -----
+# get all needed combinations of stations and dates
+needed_temperature <- wq_meta_station_key %>%
+  select(site_id,temperature_ghcn_id) %>%
+  left_join(select(wq_data,site_id,date)) %>%
+  select(temperature_ghcn_id,date) %>%
+  distinct()
+
+needed_temperature
+
 
 if (file.exists("data/weather.rdata")){
   load("data/weather.rdata")
