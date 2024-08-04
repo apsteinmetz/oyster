@@ -11,11 +11,14 @@ library(progressr)
 methods_overwrite()
 
 weather <- duckplyr_df_from_parquet("data/weather_ghcn.parquet") %>%
-  rename(precip_in = precipitation) %>%
-  # to get 2-day total precip we don't take current day precip
-  # because most wq samples are taken early in the day
-  mutate(precip_in_48 = lag(precip_in,1) +
-           lag(precip_in,2))
+  arrange(date,ghcn_station_name) %>%
+  mutate(across(where(is.character),as.factor)) %>%
+  # complete data with missing dates
+  # so that we can correctly add 48 hour precip
+  complete(date, nesting(ghcn_station_name,ghcn_station_id)) %>%
+  mutate(.by= ghcn_station_id,precip_in_48 = lag(precip_in,2) + lag(precip_in,1))
+
+
 
 wq_weather_key <- df_from_parquet("data/wq_meta_station_key.parquet") %>%
   select(site_id,precip_ghcn_id,temperature_ghcn_id) %>%
@@ -32,7 +35,8 @@ precip <- weather %>%
             precip_ghcn_id = ghcn_station_id,
             precip_in,
             precip_in_48) %>%
-  right_join(wq_data_times, by = c("date","precip_ghcn_id"))
+  right_join(wq_data_times, by = c("date","precip_ghcn_id")) %>%
+  select(-sample_time,-temperature_ghcn_id)
 
 # if no data for that date and station take mean of
 # precip on that date for all stations reporting
@@ -48,18 +52,22 @@ default_station = "USW00094728"
 missing_precip <- precip_adj %>%
   filter(is.na(precip_in)) %>%
   mutate(precip_ghcn_id = default_station) %>%
-  select(-precip_in) %>%
+  select(-precip_in,-precip_in_48) %>%
   left_join(transmute(weather,
                       date,
                       precip_ghcn_id = ghcn_station_id,
-                      precip_in = precipitation),
+                      precip_in, precip_in_48),
                       by = c("date","precip_ghcn_id"))
 
+
+precip_adj <- precip_adj %>%
+  filter(!is.na(precip_in)) %>%
+  bind_rows(missing_precip)
 
 temperature <- weather %>%
   transmute(date,
             temperature_ghcn_id = ghcn_station_id,
-            temperature_f = temperature) %>%
+            temperature_f) %>%
   right_join(wq_data_times, by = c("date","temperature_ghcn_id")) %>%
   select(-sample_time,-precip_ghcn_id)
 
@@ -72,7 +80,7 @@ missing_temps <- temperature %>%
   left_join(transmute(weather,
                       date,
                       temperature_ghcn_id = ghcn_station_id,
-                      temperature_f = temperature),
+                      temperature_f),
                       by = c("date","temperature_ghcn_id"))
 
 
@@ -81,5 +89,5 @@ temperature_adj <- temperature %>%
   bind_rows(missing_temps)
 
 # write to parquet
-arrow::write_parquet(precip,"data/wq_precip_data.parquet")
+arrow::write_parquet(precip_adj,"data/wq_precip_data.parquet")
 arrow::write_parquet(temperature_adj,"data/wq_temperature_data.parquet")

@@ -242,5 +242,6 @@ weather_ghcn <- weather_new |>
   bind_rows(weather_ghcn) |>
   arrange(date) |>
   distinct()
+weather_ghcn <- fix_raw_weather(weather_raw)
 # save data as parquet
 arrow::write_parquet(weather_ghcn,"data/weather_ghcn.parquet")
