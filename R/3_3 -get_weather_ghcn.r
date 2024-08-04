@@ -20,28 +20,8 @@ ghcn_stations <- duckplyr_df_from_file("data/ghcnd_stations_ny.parquet","read_pa
   rename(ghcn_station_id = id)
 weather_ghcn <- duckplyr_df_from_file("data/weather_ghcn.parquet","read_parquet")
 
-# if (file.exists("data/weather.rdata")){
-#   load("data/weather.rdata")
-# } else {
-#   weather_raw <- tibble()
-#   # if this fails at a certain year keep weather_raw, set years to remaining
-#   # years and restart
-#   for (y in years) {
-#     # have to separate out because max request is 1000 rows
-#     weather_raw <- bind_rows(weather_raw, get_weather_year(y,datatypeid = c("TMIN","TMAX")))
-#     weather_raw <- bind_rows(weather_raw, get_weather_year(y,datatypeid = c("PRCP")))
-#     print(nrow(weather_raw))
-#   }
-#   weather <- weather_raw |>
-#     fix_raw_weather()
-#   save(weather,file="data/weather.rdata")
-#   arrow::write_parquet(weather,"data/weather.parquet")
-#   write_csv(weather,"data/weather.csv")
-# }
-
-
-datatypeids <- c("TMIN","TMAX","PRCP")
-years= 2011:year(Sys.Date())
+# get neeeded stations
+wq_meta_station_key
 
 
 # get NYC area stations
@@ -86,7 +66,7 @@ get_weather <-  function(station = "USW00014732",
 get_weather_year <-  function(year=2020,
                               station = central_park,
                               datatypeid = datatypeids) {
-  print(year)
+  # print(year)
   startdate = paste0(year, "-01-01")
   enddate = paste0(year, "-12-31")
   weather <- ncdc(
@@ -101,6 +81,15 @@ get_weather_year <-  function(year=2020,
   return(weather$data)
 }
 
+c_to_f <- function(temp) {
+  return(temp *9/5 + 32)
+}
+
+# function to convert millimeters to inches
+mm_to_in <- function(len) {
+  return(len*.039)
+}
+
 fix_raw_weather <- function(weather_raw) {
   weather_raw %>%
     distinct() %>%
@@ -112,9 +101,10 @@ fix_raw_weather <- function(weather_raw) {
                 values_from = "value") %>%
     left_join(ghcn_stations, by = "ghcn_station_id")  |>
     transmute(date,
+              ghcn_station_id,
               ghcn_station_name = name,
-              temperature = c_to_f((TMIN + TMAX) / 20),
-              precipitation = mm_to_in(PRCP / 10)) |>
+              temperature_f = c_to_f((TMIN + TMAX) / 20),
+              precip_in = mm_to_in(PRCP / 10)) |>
     distinct()
 
     # fill in missing days with previous day
@@ -124,15 +114,50 @@ fix_raw_weather <- function(weather_raw) {
     # mutate(precipitation = ifelse(is.na(precipitation),0,precipitation))
 }
 
-c_to_f <- function(temp) {
-  return(temp *9/5 + 32)
-}
+# Get full weather data set
 
-# function to convert millimeters to inches
-mm_to_in <- function(len) {
-  return(len*.039)
-}
+datatypeids <- c("TMIN","TMAX")
+years= 2011:year(Sys.Date())
 
+# only ghcn stations which are nearest to at least one wq station
+# refactor for precip
+temp_stations <- ghcn_stations %>%
+  filter(last_year == year(Sys.Date())) %>%
+  filter(element == "TMAX") %>%
+  mutate(temperature_ghcn_id = ghcn_station_id) %>%
+  semi_join(wq_meta_station_key,by = "temperature_ghcn_id") %>%
+  distinct()
+
+
+# don't re-initialize when restarting stopped process
+weather_raw <- tibble()
+throttle <- 0.4 # seconds between calls. Tweak this to avoid rate limiting.
+stations_to_get <- temp_stations # or prcp_stations
+elements <- c("TMIN","TMAX") # or "PRCP"
+oldest_year <- 2011
+start_row = 1 # station
+stations_to_get$name[start_row]
+start_year = 2011
+with_progress({
+  p1 = progressor(along = start_row:nrow(stations_to_get))
+  for (s in start_row:nrow(stations_to_get)) {
+    startyear <- max(stations_to_get$first_years[s], oldest_year)
+    # restart point
+    if (start_row == s) startyear <- start_year
+    endyear <- stations_to_get$last_year[s]
+    station <- stations_to_get$ghcn_station_id[s]
+    p2 = progressor(along = startyear:endyear)
+    for (y in startyear:endyear) {
+      weather_raw <- bind_rows(weather_raw,
+                               get_weather_year(y, station, datatypeid = elements))
+      Sys.sleep(throttle)
+      p2(print(y))
+    }
+    p1(print(temp_stations$name[s]))
+  }
+})
+
+temp_raw <- weather_raw
 
 # MAIN retrieve weather data ---------------------------------------------------
 # for each combination of observation date and station
