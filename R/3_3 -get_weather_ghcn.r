@@ -4,7 +4,7 @@ library(tidyverse)
 library(purrr)
 library(arrow)
 library(duckplyr)
-library(sf)
+# library(sf)
 library(progressr)
 
 # devtools::install_github("ropensci/rnoaa")
@@ -16,7 +16,8 @@ DEBUG = TRUE
 # get needed files
 wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
 wq_meta_station_key <- duckplyr_df_from_file("data/wq_meta_station_key.parquet","read_parquet")
-ghcn_stations <- duckplyr_df_from_file("data/ghcnd_stations_ny.parquet","read_parquet")
+ghcn_stations <- duckplyr_df_from_file("data/ghcnd_stations_ny.parquet","read_parquet") %>%
+  rename(ghcn_station_id = id)
 weather_ghcn <- duckplyr_df_from_file("data/weather_ghcn.parquet","read_parquet")
 
 # if (file.exists("data/weather.rdata")){
@@ -104,14 +105,13 @@ fix_raw_weather <- function(weather_raw) {
   weather_raw %>%
     distinct() %>%
     transmute(date = as.Date(date),
-              id = str_remove(station,"GHCND:"),
+              ghcn_station_id = str_remove(station,"GHCND:"),
               datatype,
               value) %>%
     pivot_wider(names_from = "datatype",
                 values_from = "value") %>%
-    left_join(ghcn_stations, by = "id")  |>
+    left_join(ghcn_stations, by = "ghcn_station_id")  |>
     transmute(date,
-              ghcn_station_id = id,
               ghcn_station_name = name,
               temperature = c_to_f((TMIN + TMAX) / 20),
               precipitation = mm_to_in(PRCP / 10)) |>
@@ -143,9 +143,9 @@ needed_temperature <- wq_meta_station_key %>%
   left_join(select(wq_data,site_id,date)) %>%
   select(temperature_ghcn_id,date) %>%
   distinct()|>
-  rename(id = temperature_ghcn_id) |>
+  rename(ghcn_station_id = temperature_ghcn_id) |>
   # omit dates that we know won't have data
-  left_join(ghcn_stations,by ="id") |>
+  left_join(ghcn_stations,by ="ghcn_station_id") |>
   filter(year(date) >= first_year & year(date) <= last_year & element == "TMAX") |>
   distinct()
 
@@ -156,15 +156,23 @@ needed_rain <- wq_meta_station_key %>%
   left_join(select(wq_data,site_id,date)) %>%
   select(precip_ghcn_id,date) %>%
   distinct() |>
-  rename(id = precip_ghcn_id) |>
+  rename(ghcn_station_id = precip_ghcn_id) |>
   # omit dates that we know won't have data
-  left_join(ghcn_stations,by ="id") |>
+  left_join(ghcn_stations,by ="ghcn_station_id") |>
   filter(year(date) >= first_year & year(date) <= last_year & element == "PRCP") |>
   distinct()
 
+# make sure we get 3 days of rain data for each wq observation date
+needed_rain_lag1 <- needed_rain |>
+  mutate(date = date - 1)
 
+needed_rain_lag2 <- needed_rain |>
+  mutate(date = date-2)
 
-needed_rain |> as_tibble()
+needed_rain <- bind_rows(needed_rain,
+                         needed_rain_lag1,
+                         needed_rain_lag2) |>
+  distinct()
 
 needed_both <- bind_rows(needed_temperature,needed_rain) |>
   distinct()
@@ -172,16 +180,18 @@ needed_both <- bind_rows(needed_temperature,needed_rain) |>
 needed_both |> as_tibble()
 
 missing_both <- needed_both |>
-  anti_join(weather_ghcn,by = c("date","id")) |>
+  anti_join(weather_ghcn,by = c("date","ghcn_station_id")) |>
+  select(date,ghcn_station_id) %>%
   distinct() |>
-  nest(station_ids = id)
+  nest(station_ids = ghcn_station_id) %>%
+  na.omit()
 
 missing_both |> as_tibble()
 
-# don't re-initialize when restarting stoped process
+# don't re-initialize when restarting stopped process
 # weather_raw <- tibble()
 throttle <- 0.4 # seconds between calls. Tweak this to avoid rate limiting.
-start_row = 273
+start_row = 856
 with_progress({
   p = progressor(along = start_row:nrow(missing_both))
   for (n in start_row:nrow(missing_both)) {
@@ -191,7 +201,8 @@ with_progress({
       weather_raw,
       get_weather(
         station = stations,
-        startdate = date,
+        # we need more than one day of precip data
+        startdate = date-2,
         enddate = date,
         datatypeid = c("TMIN", "TMAX", "PRCP")
       )
@@ -202,7 +213,8 @@ with_progress({
 })
 
 weather_new <- fix_raw_weather(weather_raw)
-weather_ghcn <- weather_new |> bind_rows(weather_ghcn) |>
+weather_ghcn <- weather_new |>
+  bind_rows(weather_ghcn) |>
   arrange(date) |>
   distinct()
 # save data as parquet
