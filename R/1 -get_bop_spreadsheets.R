@@ -44,13 +44,17 @@ wq_meta <- wq_meta_raw %>%
   mutate(currently_testing = as.logical(if_else(is.na(currently_testing),0,1))) |>
   rename_with(~"nyc_dep_wrrf_or_sewershed",starts_with("associated")) |>
   # make NA entries in character columns actual NA so there is only one kind of NA
-  mutate(across(where(is.character),\(x) if_else(x == "NA",NA,x))) |>
+  mutate(across(where(is.character),\(x) if_else(x == "N/A",NA,x))) |>
+  # some columns are NA because they are in NJ. Make "NJ" the value
+  mutate(district_council_number = if_else(district_council_number == "N/A","NJ",district_council_number)) |>
+  mutate(nyc_dep_wrrf_or_sewershed = if_else(is.na(nyc_dep_wrrf_or_sewershed),"NJ",nyc_dep_wrrf_or_sewershed)) |>
+  mutate(nys_dec_water_body_classification = if_else(is.na(nys_dec_water_body_classification),"NJ",nys_dec_water_body_classification)) |>
   # character as factor except notes
-  mutate(across(where(is.character),as.factor)) |>
+  # mutate(across(where(is.character),as.factor)) |>
   mutate(notes = as.character(notes))
 
 
-# add all levels of water body classifications to the meta data
+``# add all levels of water body classifications to the meta data
 wq_meta$nys_dec_water_body_classification <-
   fct_expand(wq_meta$nys_dec_water_body_classification,levels(NYDEC_water_classifications$water_body_class))
 # reorder factor levels
@@ -73,7 +77,8 @@ wq_meta <- wq_meta |>
 wq_meta <- wq_meta |>
   mutate(across(where(is.factor), ~ fct_na_value_to_level(.x,level = "missing")))
 
-# Clean Individual Data --------------------------------------------------------
+
+# Clean up testing  Data --------------------------------------------------------
 
 
 data_names <- c("site","site_id","date","year","month","high_tide","sample_time","bacteria",
