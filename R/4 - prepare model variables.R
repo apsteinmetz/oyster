@@ -62,8 +62,8 @@ temperature_data <- df_from_parquet("data/wq_temperature_data.parquet") %>%
 precip_data <- df_from_parquet("data/wq_precip_data.parquet") %>%
   select(date,site_id,precip_in,precip_in_48)
 
-model_data <- wq_data %>%
-  left_join(wq_meta,by="site_id") %>%
+model_data <- wq_data_select %>%
+  left_join(wq_meta_select,by="site_id") %>%
   left_join(tide_data,by=c("site_id","date")) %>%
   left_join(temperature_data,by=c("site_id","date")) %>%
   left_join(precip_data,by=c("site_id","date")) %>%
@@ -71,21 +71,22 @@ model_data <- wq_data %>%
   # change chr to factor
   mutate(across(where(is.character),as.factor)) %>%
   # change site back to character
-  mutate(site = as.character(site)) |>
+  # mutate(site = as.character(site)) |>
   rename(bop_precip_t0 = precip_t0,
          bop_precip_t1 = precip_t1,
          bop_precip_48 = precip_48,
          ghcn_precip_in = precip_in,
-         ghcn_precip_in_48 = precip_in_48)
+         ghcn_precip_in_48 = precip_in_48) |>
+select(bacteria,quality,site_id,site,date,everything())
 model_data |> as_tibble()
 
 # save model_data
-write_parquet(model_data,"data/model_data.parquet")
+write_parquet(model_data,"data/wq_model_data.parquet")
 
 # a lot of disagreement on precipitation
 # look at LGA alone
 model_data %>%
-  filter(site_id == "15") |>
+  filter(site_id == "13") |>
   ggplot(aes(x=ghcn_precip_in,y=bop_precip_t0)) +
   geom_point() +
   geom_smooth(method="lm") +
