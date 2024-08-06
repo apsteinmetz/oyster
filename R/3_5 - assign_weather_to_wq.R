@@ -11,13 +11,15 @@ library(progressr)
 methods_overwrite()
 
 weather <- duckplyr_df_from_parquet("data/weather_ghcn.parquet") %>%
-  arrange(date,ghcn_station_name) %>%
+  ungroup() |>
+  arrange(ghcn_station_name,date) %>%
   mutate(across(where(is.character),as.factor)) %>%
   # complete data with missing dates
   # so that we can correctly add 48 hour precip
-  complete(date, nesting(ghcn_station_name,ghcn_station_id)) %>%
-  mutate(.by= ghcn_station_id,precip_in_48 = lag(precip_in,2) + lag(precip_in,1))
-
+  complete(nesting(ghcn_station_name,ghcn_station_id),date) %>%
+  group_by(ghcn_station_id) %>%
+  mutate(precip_in_48 = lag(precip_in,1) + lag(precip_in,2)) |>
+  ungroup()
 
 
 wq_weather_key <- df_from_parquet("data/wq_meta_station_key.parquet") %>%
