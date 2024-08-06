@@ -20,14 +20,17 @@ library(duckplyr)
 library(skimr)
 library(gt)
 library(here)
-source(here("R/pretty_truth_table.R"))
+source(here("R/func_pretty_truth_table.R"))
 rlang::local_options(duckdb.materialize_message = FALSE)
 wq <- df_from_parquet(here("data/wq_model_data.parquet")) |>
   # remove rows with missing data
   remove_missing() |>
-  as_tibble()
-wq_data_4 <- df_from_parquet(here("data/wq_data_4.parquet")) |>
-  as_tibble()
+  as_tibble() |>
+  mutate(across(where(is.character),as.factor)) |>
+  # re-order quality factor levels
+  mutate(quality = fct_relevel(quality, "Safe", "Caution", "Unsafe")) |>
+  # use our weather, not BOP's
+  select(-starts_with("bop")) 
 
 methods_restore()
 
@@ -39,7 +42,7 @@ DANGER <- 104
 
 ## Abstract
 
-This document explores the relationship between testing location,weather, tides and water quality in the NYC Harbor. The data sources are the Billion Oyster Project (BOP), the Citizens' Water Quality Testing Program and the NOAA.
+This document explores the relationship between testing location, weather, tides and water quality in the NYC Harbor. The data sources are the Billion Oyster Project (BOP), the Citizens' Water Quality Testing Program and the NOAA. The data spans from Autumn 2011 to June 27, 2024.  The stations reporting vary over time.
 
 This note is an update of a previous exploration of the data where I showed that a linear regression model was a very poor explainer of bacteria levels in New York Harbor water. In this note I set a lower bar by classifying bacteria into just three classes, "safe," (\<=35 colonies) "caution" (\<= 104 colonies) and "unsafe" (\> 104 colonies). I train a "random forest" machine learning model on a sub-sample of the data and then evaluate the model with a different test set of data.
 
@@ -55,7 +58,7 @@ The main data source is the BOP water quality spreadsheet found here: [[BOP Wate
 
 ## Feature Engineering
 
-The BOP data includes time of last high tide. I thought I could get more granular by imputing the direction and strength of the tidal current at the time of the water sample. I used the NOAA tide data to find the previous slack tide time and level, then the next slack tide time and level.By determining where in the tide phase the sample was taken and the total change in water level for that phase, I impute the direction and strength of the tidal current when the sample was taken using this formula:
+The BOP data includes time of last high tide. I thought I could get more granular by imputing the direction and strength of the tidal current at the time of the water sample. I used the NOAA tide data from the nearest statoin to find the previous slack tide time and level, then the next slack tide time and level. By determining where in the tide phase the sample was taken and the total change in water level for that phase, I impute the direction and strength of the tidal current when the sample was taken using this formula:
 
 $$
 CurrentSpeed = HighLowRangeFt * sin(\pi * \frac{HoursSinceLastTide}{TideDurationHrs})
@@ -63,33 +66,66 @@ $$
 
 So the further we are from a slack tide, high or low, the faster the current will be. The bigger the change in water level during a tidal phase, the stronger the current will be. Ebb tides are negative values, flood tides are positive. *CurrentSpeed* is an index so the units don't have a specific meaning like feet-per-second.
 
-I get the tides from the closest NOAA tide station to each water sampling site. Where the location of the sampling site is not known, I default to the Battery tide station at the bottom of Manhattan. This occurs when the name of the sampling site does not agree with any site name in the location meta data. **There are significant number of such cases.**
+The city of New York uses 48-hour rainfall amounts in its safety criteria so that is what I use as the precipitation variable. Since the sample time is in the middle of the day, that day's rainfall might not be relevant.  I choose the prior two days for the 48-hour period. I use the NOAA rainfall data for the closest station to the sampling site. Where the location of the sampling site is not known, I default to the Central Park weather station.  This is more important than it might first appear.  Rainfall varies widely by location in the city.
+```{r}
+# use full weather history
+precip_year <-arrow::read_parquet(here("data/weather_ghcn.parquet")) |>
+  select(date,ghcn_station_name,precip_in) |>
+  mutate(year = lubridate::year(date)) |>
+  summarise(.by = c(year,ghcn_station_name),
+            n = n(),
+            precip = mean(precip_in, na.rm = TRUE)*365) |>
+  na.omit() |>
+  # fewer observations make for less useful generalizations
+  filter(year == 2023, n > 200)
 
-The city of New York uses 48-hour rainfall amounts in its safety criteria so that is what I use as the precipitation variable.
+precip_year |>
+  ggplot(aes(x = factor(ghcn_station_name), y = precip,group = ghcn_station_name)) +
+  geom_boxplot(color = "blue") +
+  labs(title = "There Is Significant Variation In Annual\nRainfall Across Stations",
+       subtitle = "Estimated Total Rainfall in 2023",
+       x = "NOAA Stations With At Least\n200 Daily Observations in 2023",
+       y = "Annualized Daily Rainfall (inches)") +
+  theme_minimal() +
+  coord_flip()
 
-The BOP data does not include temperature. I used the NOAA Central Park air temperature for each sample day as a data feature. This is a (not very good) proxy for the water temperature but also for seasonality. This allows seasonality to be a continuous variable. Otherwise, "month" would be a categorical variable.
+```
 
-In the end I chose to the following features: `Site`, `TideHighLowRange`, `HoursSinceLastTide`, `CurrentSpeed`, `48-HourPrecip` and `Temperature`.
 
+The BOP data does not include temperature. I used the NOAA Air temperature at the nearest station for each sample day as a data feature. This is a (not very good) proxy for the water temperature but also for seasonality. This allows seasonality to be a continuous variable. Otherwise, "month" would be a categorical variable.
+
+The NOAA Weather and tide data I retrieved are substituted for the equivalent features in the BOP water quality spreadsheet. This leaves us with the following data features:
+```{r}
+names(wq)
+```
 ## Data Exploration
 
+As mentioned above, the number of stations reporting varies over time.  It has grown steadily though during the COVID crisis fewer stations reported.
+
+```{r}
+wq |>
+  mutate(year = year(date)) |>
+  group_by(year) |>
+  summarise(n = n_distinct(site_id)) |>
+  ggplot(aes(x = year, y = n)) +
+  geom_col(fill = "lightblue") +
+  labs(title = "Reporting Stations Have Steadily Increased",
+       x = "Year",
+       y = "Number of Stations") +
+  theme_minimal()
+```
 The bacteria levels are distributed in a lopsided way. The extreme high level is effectively infinity and conveys little information. Values above 5000 are only 5% of the observations and values below 500 are 82% of the observations.
 
 ```{r bacteria_hist}
 
 wq_rf_prep_cl <- wq |>
   ungroup() |>
-  # create a 3 level factor
-  mutate(bacteria_category = cut(bacteria, breaks = c(0, 35,104, Inf), labels = c("SAFE", "CAUTION", "UNSAFE"))) |>
-  select(-bacteria) |>
-  select(-precip_noaa) |>
-  select(-precip_wk) |>
-  separate(site,into = "body",remove = FALSE,extra = "drop") |>
-  # convert all char columns to factors
-  mutate_if(is.character,as.factor) |>
-  # select(-site) |>
-  select(-body) |>
+  select(-date,-bacteria) |>
+  select(-site_id) |>
+  # mutate(site = as_factor(site)) |>
+  # dimension reduction
   drop_na()
+
 
 wq |> pivot_longer(bacteria) |>
   ggplot(aes(x = value)) +
@@ -101,38 +137,40 @@ wq |> pivot_longer(bacteria) |>
 
 ```
 
-If we group the bacteria levels according to the official quality standards we get a better behaved distribution.
+If we group the bacteria levels according to the official quality standards we get a better behaved distribution.  As a result, we will attempt to predict the quality classification of the water rather than the bacteria level.
 
-```{r class_ist}
+
+```{r class_hist}
 wq_rf_prep_cl |>
-  group_by(bacteria_category) |>
+  group_by(quality) |>
   summarise(n = n()) |>
-  ggplot(aes(x = bacteria_category, y = n)) +
+  ggplot(aes(x = quality, y = n)) +
   geom_col(fill = "lightblue") +
   labs(title = "Distribution of Bacteria Categories",
-       x = "Bacteria Category",
+       x = "Water Quality",
        y = "Count") + 
   theme_minimal()
 
 ```
 
-What are the distributions of all the variables? Note the tide level distribution are the levels at just the high and low tides.
+What are the distributions of all the variables? Note the tide level distribution shows the levels at just the high and low tides but we know when in the tidal phase the sample was taken.
 
 ```{r hist_all}
 # plot histograms of all variables using ggplot
 wq_rf_prep_cl |>
   ungroup() |>
-  select(-site,-bacteria_category) |>
+  select(is.numeric) |>
   gather() |>
   ggplot(aes(x = value)) +
   geom_histogram(bins=20,fill = "lightblue") +
   facet_wrap(~key, scales = "free") + 
-  labs(title = "Distribution of All Variables",
+  labs(title = "Distribution of All Numeric Variables",
        y = "Count",x="") +
   theme_minimal()
 ```
+The remaining features are categorical, not continuous variables, so we will have to take that into account when we build our model. 
 
-What are the cleanest and most contaminated sites?
+What are the cleanest and most contaminated sites? The boxes show the median and inter-quartile ranges.
 
 ```{r dirtiest}
 median_all <- median(wq$bacteria)
@@ -200,43 +238,65 @@ wq |>
 
 What is obvious is that even the cleanest sites have a lot of variation in bacteria levels. This might give us some hope that environmental factors might be more important than location in predicting bacteria levels.
 
-Now let's look at some trends over time. Sadly, the overall level of bacteria has not improved over time. Looking at temperature, there are no clear trends. There are a couple years where a lot of rainfall seems associated with more bacteria but other years contradict that.
+Now let's look at some trends over time. Sadly, the overall level of bacteria has not improved over time. Looking at temperature, there are no clear trends. There does seem to be a relationship between rainfall and bacteria.  Note the rainfall measurements are from the closest NOAA site on the day of the water sample, so it may not be a proxy for annual rainfall.
 
+As we saw, the number of reporting stations has increased so the data may not be comparable year-on-year.  Let's look at just the stations that have been reporting for at least 10 years.
 ```{r}
-rain_axis = 2.5
-wq_data_4 |>
+wq_10 <- wq |> 
+  # filter out stations that have been reporting for less than 10 years
+  group_by(site) |>
+  mutate(year = year(date)) |>
+  summarise(n_years = n_distinct(year)) |>
+  filter(n_years > 9) |>
+  select(site) |>
+  inner_join(wq, by = "site") |>
+  ungroup() |> 
+  filter(year(date) > year(Sys.Date())-11)
+  
+rain_axis = 200
+wq_10 |>
+  ungroup() |>
+  mutate(year = year(date),month = month(date)) |> 
   filter(year > 2011) |>
   summarise(.by = year, median_bacteria = median(bacteria),
-            median_temp = median(temperature_noaa),
-            "total_rainfall" = mean(precip_wk)*20*rain_axis) |>
+            median_temp = median(temperature_f),
+            average_rainfall = mean(ghcn_precip_in)*rain_axis) |>
   ggplot(aes(x = year, y = median_bacteria)) + geom_col(fill = "lightblue") +
   # geom_smooth(aes(x = year, y = median_bacteria),color = "black",se = FALSE) +
   geom_line(aes(x = year, y = median_temp), color = "red") +
-  geom_line(aes(x = year, y = total_rainfall), color = "blue") +
+  geom_line(aes(x = year, y = average_rainfall), color = "blue") +
   # label the y-axes
   scale_x_continuous(breaks = seq(2000,2024,1)) +
   # put totat_rainfall on secondary y-axis
-  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Total Rainfall (Blue Line")) +
+  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Average Daily Rainfall (Blue Line")) +
   labs(y = "Median Bacteria Concentration (Blue Bar)\nand Temperature (Red Line)",
        title= str_to_title("water is not getting cleaner over time"),
        subtitle = "October 2011 - May 2024") + 
   theme_minimal()
-
+  
 ```
+
 
 ## Modeling
 
-We use a random forest algorithm to train a prediction model. This class of models works very well on imbalanced data like we have here. It can also handle data sets with many categorical inputs like `site` in this case. More on this technique can be found at [<https://en.wikipedia.org/wiki/Random_forest>]{.underline} . To create the model we split the data randomly into a training set and a test set. 75% is used for training and the rest we hold out for testing. The sets are stratified so the same proportion of each bacteria category is in each set. The model is tuned using cross-validation on the training set and then evaluated on the test set.
+We use a random forest algorithm to train a prediction model. This class of models works very well on imbalanced data like we have here. It can also handle data sets with many categorical inputs like `site` in this case. More on this technique can be found at [<https://en.wikipedia.org/wiki/Random_forest>]{.underline} . To create the model we split the data randomly into a training set and a test set. 75% is used for training and the rest we hold out for testing. The sets are stratified so the same proportion of each bacteria quality is in each set. The model is tuned using cross-validation on the training set and then evaluated on the test set.
+
+All of the code and data used to create the model can be found in the project's GitHub repository at [<https://github.com/apsteinmetz/oyster.git>]{.underline} .
 
 ## Results
 
-The simplest way to evaluate the model is to look at the confusion matrix. This is a table that shows the number of correct and incorrect predictions for each category. In a perfect model all the observations would lie on the diagonal and the off-diagonal counts would all be zero. The table below shows that out of 1150 "UNSAFE" observations, the model predicted 903, or 81%, correctly. This was the best result. On the other hand, in 7% of *all* the cases, the model predicted the water was "SAFE" when the actual was "UNSAFE" (176/2544). Additionally, The model is far better at predicting "SAFE" and "UNSAFE" than "CAUTION."
+The simplest way to evaluate the model is to look at the confusion matrix. This is a table that shows the number of correct and incorrect predictions for each quality. In a perfect model all the observations would lie on the diagonal and the off-diagonal counts would all be zero. The table below shows that out of 1194 "UNSAFE" observations, the model predicted or 76%, correctly. This was the best result. While overall accuracy is important, we might me most concerned about cases when the model predicts "SAFE" water when it's not. In 8% of *all* the cases, the model predicted the water was "SAFE" when the actual was "UNSAFE" (239/3082). Additionally, The model is far better at predicting "SAFE" and "UNSAFE" than "CAUTION."
+
+::: {layout-ncol=2}
 
 ```{r}
+#| fig-cap: "Proportions"
+
+# fitted model results come from wq_model.r
 # show a confusion matrix
 load(here("data/wq_pred_final.rdata"))
 xt <- wq_pred_final |>
-  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  conf_mat(truth = quality, estimate = .pred_class) |>
   # return just the confusion matrix
   pluck("table") |>
   as_tibble() |>
@@ -248,7 +308,7 @@ xt_count <- xt |>
   select(-.prop) |>
   pivot_wider(names_from = Prediction,values_from = n) |>
   rowwise() |>
-  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+  mutate(Total = sum(c(Safe,Caution,Unsafe)))
 
 gt_domain <- xt_count |> select(-Total,-Truth) |> max()
 
@@ -256,15 +316,20 @@ xt_prop <- xt |>
   select(-n) |>
   pivot_wider(names_from = Prediction,values_from = .prop) |>
   rowwise() |>
-  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+  mutate(Total = sum(c(Safe,Caution,Unsafe)))
 
-# truth_table(xt_prop,"prop")
-truth_table(xt_count,"count")
+truth_table(xt_prop,"prop")
 ```
 
-In a regression analysis, we measure the coefficient of each of the input variables so there is a precise measure of how much each variable contributes to the prediction. In a random forest, we don't have linear relationships but we can measure the relative importance of each variable.
+```{r}
+#| fig-cap: "Counts"
+truth_table(xt_count,"count")
+```
+:::
 
-The `site` input is nearly twice as important as the other inputs. Since location doesn't change over time, modeling might seem superfluous. Overall results can be summarized with the the single *"Kappa"* statistic which indicates the model is about 30 percentage points better than random chance. If we remove the `site` input from the model, the prediction validity is reduced, as we'd expect, but it is still 20% better than random chance. In such a model 2-day rainfall becomes the most important input.
+In a regression analysis, we measure the coefficient of each of the input variables so there is a precise measure of how much each variable contributes to the prediction. In a random forest, we don't have linear relationships but we still can measure the relative importance of each variable.
+
+Daily rainfall is the most important determinant of water quality.  This is not surprising since heavy rainfall overwhelms the sewage system and washes bacteria into the water.  Somewhat surprisingly, then, `sewershed` is not particularly important. The `site` input is the second most important feature. Since location doesn't change over time, we don't need a model to tell us some spots are worse than others. Overall results can be summarized with the the single *"Kappa"* statistic which indicates the model is about 39 percentage points better than random chance.
 
 ```{r}
 
@@ -281,11 +346,11 @@ var_imp |>
   theme_minimal()
 ```
 
-The "Receiver Operator Curve" visualizes how much better than model is than random chance. Curves that bend up and to the left are better. We can see that the "CAUTION" predictions are barely better than a coin flip.
+The "Receiver Operator Curve" visualizes how much better than model is than random chance. Curves that bend up and to the left are better. We can see that the "Caution" predictions are barely better than a coin flip.
 
 ```{r}
 wq_pred_final |>
-  roc_curve(truth = bacteria_category, .pred_SAFE,.pred_CAUTION,.pred_UNSAFE) |>
+  roc_curve(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe) |>
   ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
   geom_path() +
   geom_abline(lty = 3) +
@@ -305,14 +370,14 @@ wq_pred_final |>
 
 ```
 
-Every prediction the model makes includes a confidence level. The classification with the highest confidence level is what the model predicts. How certain is the model that the prediction is correct? The plot below shows the confidence level for each prediction. The majority of the classifications are correct but we can see the model is highly confident in many cases where it is wrong.
+Every prediction the model makes includes a confidence level. The quality with the highest confidence level is what the model predicts. How certain is the model that the prediction is correct? The plot below shows the confidence level for each prediction. The majority of the quality classifications are correct but we can see the model is highly confident in many cases where it is wrong.
 
 ```{r}
 # plot prediction confidence
 wq_pred_final |>
-  rename(Actual_Category = bacteria_category) |>
-  ggplot(aes(x = .pred_SAFE, y = .pred_UNSAFE, color = Actual_Category)) +
-  facet_wrap(~Actual_Category) +
+  rename(Actual_quality = quality) |>
+  ggplot(aes(x = .pred_Safe, y = .pred_Unsafe, color = Actual_quality)) +
+  facet_wrap(~Actual_quality) +
   geom_point() +
   geom_abline() +
   scale_color_manual(values = c("green", "orange","red")) +
@@ -335,7 +400,7 @@ load(here("data/wq_overfit_cl.rdata"))
 
 # plot prediction confidence
 xt <- wq_pred_cl |>
-  conf_mat(truth = bacteria_category, estimate = .pred_class) |>
+  conf_mat(truth = quality, estimate = .pred_class) |>
   # return just the confusion matrix
   pluck("table") |>
   as_tibble() |>
@@ -347,7 +412,7 @@ xt_count <- xt |>
   select(-.prop) |>
   pivot_wider(names_from = Prediction,values_from = n) |>
   rowwise() |>
-  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+  mutate(Total = sum(c(Safe,Caution,Unsafe)))
 
 gt_domain <- xt_count |> select(-Total,-Truth) |> max()
 
@@ -355,14 +420,14 @@ xt_prop <- xt |>
   select(-n) |>
   pivot_wider(names_from = Prediction,values_from = .prop) |>
   rowwise() |>
-  mutate(Total = sum(c(SAFE,CAUTION,UNSAFE)))
+  mutate(Total = sum(c(Safe,Caution,Unsafe)))
 
-# truth_table(xt_prop,"prop")
-truth_table(xt_count,"count")
+truth_table(xt_prop,"prop")
+# truth_table(xt_count,"count")
 
 ```
 :::
 
 ## Conclusion
 
-We have created a random forest model that shows modest accuracy in predicting whether enterococci levels will be at the extremes of "safe" or "unsafe." The model is not very good at predicting the middle "caution" levels of bacteria. Unfortunately, the site location itself is the most important predictor of bacteria levels so changing environmental factors like tide, temperature and rainfall tell us little about levels over time. Understanding point sources of pollution around each site and how they vary might be more fruitful.
+We have created a random forest model that shows modest accuracy in predicting whether enterococci levels will be at the extremes of "safe" or "unsafe." The model is not very good at predicting the middle "caution" levels of bacteria. We have shown that rainfall is the most important determinant of water quality.  Unfortunately, the site location itself is an extremely important predictor of bacteria levels so changing environmental factors like tide and temperature tell us little about levels over time. Understanding point sources of pollution around each site and how they vary over time seems like a good next step but the fact that `sewershed` is not a very important predictor is discouraging.
