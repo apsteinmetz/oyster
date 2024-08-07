@@ -1,4 +1,6 @@
 # get tide data from noaa ----------------------------------
+# update existing data as needed
+# SETUP -----------------------------------
 library(tidyverse)
 library(lubridate)
 #library(rnoaa)
@@ -12,6 +14,14 @@ methods_overwrite()
 
 #  default station is the battery NYC
 battery <- "8518750"
+
+# get needed files
+wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
+wq_meta_station_key <- duckplyr_df_from_file("data/wq_meta_station_key.parquet","read_parquet")
+
+# load tide data retrieved previously
+tides_noaa <- duckplyr_df_from_file("data/tides_noaa.parquet","read_parquet")
+
 
 # functions to get tide data from NOAA -----------------------------------------
 get_json_response <- function(url) {
@@ -72,7 +82,7 @@ get_tide_data_noaa <- function(station = "8518750", # the battery
     mutate(date = as.Date(datetime),.before = datetime) |>
     mutate(datetime = ymd_hms(paste0(datetime,":00"),tz= "America/New_York")) |>
     mutate(tide_level = as.numeric(tide_level)) |>
-    mutate(station_id = station,.before = tide_level)
+    mutate(tide_noaa_id = station,.before = tide_level)
     tides_noaa$good_tide_station <- response$good_tide_station
 
   attr(tides_noaa,"station_id") <- station
@@ -89,78 +99,60 @@ get_tide_data_noaa_year <- function(year=2011, station = "8518750"){
                             end_date = end_date))
 }
 
-# retrieve tide data for each combination of  observation date and station -----
-# get tide data for each date and station in wq_data_2
-# map() returns nothing if there is an error at any point.  Instead, this builds
-# data frame one iteration at a time, allowing a manual restart from
-# the last successful iteration. Change start_index to current value of n
 
-# get tide stations needed
-wq_data_2 <- duckplyr_df_from_file("data/wq_data_2.parquet","read_parquet")
-wq_data <- duckplyr_df_from_file("data/wq_data.parquet","read_parquet")
 
-needed_data <- wq_data_2 |>
-  select(date,closest_tide_Id,date) |>
-  filter(!is.na(closest_tide_Id)) |>
-  distinct() |>
-  arrange(date)
+# MAIN retrieve tide data for each combination of observation date and station -----
 
-#test
-tides_noaa <- get_tide_data_noaa(wq_data_2$closest_tide_Id[1],begin_date = wq_data_2$date[1]-1,end_date = wq_data_2$date[1])
+# get all needed combinations of stations and dates
+needed_tides <- wq_meta_station_key %>%
+  select(site_id,tide_noaa_id) %>%
+  left_join(select(wq_data,site_id,date)) %>%
+  select(tide_noaa_id,date) %>%
+  distinct()
 
+# only get dates needed not already in tide data
+missing_tides <- needed_tides %>%
+  anti_join(tides_noaa)
+
+
+missing_tides
+
+# test
+new_tides <- get_tide_data_noaa(missing_tides$tide_noaa_id[1],
+                                begin_date = missing_tides$date[1]-1,
+                                end_date = missing_tides$date[1])
+
+# retrieve tide data from NOAA for missing stations and dates
+# to insure we get tide data that brackets the observation time, we get the
+# tide data for the day before the observation date as well.
 start_index = 1
-tides_noaa <- tibble()
-for (n  in start_index:nrow(needed_data)) {
+new_tides <- tibble()
+# we use a loop instead of map() so we can restart from the last successful iteration
+for (n  in start_index:nrow(missing_tides)) {
+# for (n  in 1:2) {
     # for() converts date to numeric
-    print(paste(needed_data$closest_tide_Id[n],needed_data$date[n]))
-    tides_noaa <- bind_rows(
-      tides_noaa,
+    print(missing_tides[n,])
+    new_tides<- bind_rows(
+      new_tides,
       get_tide_data_noaa(
-        station = needed_data$closest_tide_Id[n],
-        end_date = needed_data$date[n],
-        begin_date = needed_data$date[n] - 1
-      )
+        station = missing_tides$tide_noaa_id[n],
+        begin_date = missing_tides$date[n]-1,
+        end_date = missing_tides$date[n])
     )
+
 }
-
-tides_noaa <- tides_noaa |> distinct()
-
-# or get full years.  More days but faster than single dates
-needed_stations <- needed_data$closest_tide_Id |> unique()
-start_index = 6
-# tides_noaa <- tibble()
-for (n  in  start_index:length(needed_stations)) {
-  for(yr in 2011:2024){
-    print(paste(n,needed_stations[n],yr))
-    tides_noaa <- bind_rows(
-      tides_noaa,
-      get_tide_data_noaa_year(year = yr,station = needed_stations[n])
-    )
-  }
-}
-tides_noaa <- tides_noaa |> distinct()
-
 
 # add tide_level range and phase duration so we can impute current later
-tides_noaa <- tides_noaa |>
-  arrange(station_id,date) |>
-  group_by(station_id) |>
+new_tides <- new_tides |>
+  arrange(tide_noaa_id,date) |>
   # positive tide range is incoming tide
-  mutate(tide_range_ft = lead(tide_level) - tide_level) |>
-  mutate(tide_duration_hrs = as.numeric(lead(datetime)-datetime)) |>
-  mutate(tide_duration_hrs = ifelse(tide_duration_hrs > 8, NA, tide_duration_hrs))
+  mutate(.by = tide_noaa_id,tide_range_ft = lead(tide_level) - tide_level) |>
+  mutate(.by = tide_noaa_id,tide_duration_hrs = as.numeric(lead(datetime)-datetime)) |>
+  mutate(.by = tide_noaa_id,tide_duration_hrs = ifelse(tide_duration_hrs > 8, NA, tide_duration_hrs))
+
+# update existing data as needed
+tides_noaa <- bind_rows(tides_noaa,new_tides) |>
+  distinct()
+
 # save as parquet file
-# df_to_parquet(tides_noaa,"data/tides_noaa.parquet")
 arrow::write_parquet(tides_noaa,"data/tides_noaa.parquet")
-
-
-
-# select just the needed days and previous day
-tides_noaa_sm <- needed_data |>
-  mutate(date = date - 1) |>
-  bind_rows(needed_data) |>
-  arrange(date) |>
-  rename(station_id = closest_tide_Id) |>
-  inner_join(tides_noaa,by = c("date","station_id"))
-
-arrow::write_parquet(tides_noaa_sm,"data/tides_noaa_sm.parquet")

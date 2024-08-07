@@ -35,31 +35,31 @@ truth_table <- function(xt,type = c("count")){
     # color prediction labels
     tab_style(
       style = list(cell_fill(color = "green"),cell_text(color = "black")),
-      locations = list(cells_column_labels("SAFE"),
+      locations = list(cells_column_labels("Safe"),
                        cells_body(column = 1,row = 1))
     ) |>
     tab_style(
       style = list(cell_fill(color = "yellow"),cell_text(color = "blaCk")),
-      locations = list(cells_column_labels("CAUTION"),
+      locations = list(cells_column_labels("Caution"),
                        cells_body(column = 1,row = 2))
     ) |>
     tab_style(
       style = list(cell_fill(color = "red"),cell_text(color = "white")),
-      locations = list(cells_column_labels("UNSAFE"),
+      locations = list(cells_column_labels("Unsafe"),
                        cells_body(column = 1,row = 3))
     ) |>
     # color Truth labels
     tab_style(
       style = list(cell_fill(color = "green"),cell_text(color = "black")),
-      locations = cells_stub("SAFE")
+      locations = cells_stub("Safe")
     ) |>
     tab_style(
       style = list(cell_fill(color = "yellow"),cell_text(color = "black")),
-      locations = cells_stub("CAUTION")
+      locations = cells_stub("Caution")
     ) |>
     tab_style(
       style = list(cell_fill(color = "red"),cell_text(color = "white")),
-      locations = cells_stub("UNSAFE")
+      locations = cells_stub("Unsafe")
     )  |>
     tab_style(
       style = cell_text(weight = "bold"),
