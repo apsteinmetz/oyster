@@ -8,7 +8,7 @@ tide_data <- df_from_parquet("data/tides_noaa.parquet") |>
   select(-good_tide_station) |>
   as_tibble()
 
-weather_data <- df_from_parquet("data/weather.parquet") |> as_tibble()
+weather_data <- df_from_parquet("data/weather_ghcn.parquet") |> as_tibble()
 
 ## done once
 # ss <- gs4_create("weather_data_nyc")
