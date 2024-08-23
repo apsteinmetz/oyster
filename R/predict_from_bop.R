@@ -101,7 +101,7 @@ day_of_week <- function(x) {
 wq_data <- wq_data_raw |>
   set_names(data_names) |>
   mutate(date = as_date(date)) |>
-  # change NA sample times to average time. Good idea?
+  # change NA sample times to average of all sample times. Good idea?
   mutate(sample_time = if_else(is.na(sample_time),sample_time_avg,sample_time)) |>
   mutate(sample_time = hms::as_hms(sample_time)) |>
   mutate(sample_day = day_of_week(date),.before = bacteria) |>
@@ -130,11 +130,13 @@ wq_data <- wq_data_raw |>
   mutate(site_id = as.factor(site_id))
 
 # feature engineering
-wq_data <- wq_data |>
+wq_data <- wq_data %>%
+  # use of dplyr pipe neede
   # make 2-day precip column since 48-hour precip is a DEP standard
   # since observation time is typically in the morning don't include the current day's precip
   # since we don't know if it came before, during or after collection
   mutate(precip_48 = rowSums(select(., precip_t1,precip_t2), na.rm = TRUE),.after="bacteria") |>
+  # categorize bacteria levels as quality levels
   mutate(quality = as_factor(cut(
     bacteria,
     breaks = c(-1, 34, 104, Inf),
