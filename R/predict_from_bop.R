@@ -4,6 +4,9 @@ library(tidyverse)
 library(googlesheets4)
 library(rvest)
 library(duckplyr)
+library(leaflet)
+library(htmltools)
+library(sf)
 
 # use duckdb for every tidyverse function
 methods_overwrite()
@@ -74,8 +77,40 @@ wq_meta <- wq_meta |>
 wq_meta <- wq_meta |>
   mutate(across(where(is.factor), ~ fct_na_value_to_level(.x,level = "missing")))
 
+wq_meta
+
+
+# convert wq_meta into a simple features object
+wq_meta_sf <- wq_meta |>
+  left_join(water_body_classifications,
+            by = c("nys_dec_water_body_classification" = "water_body_class")) %>%
+  st_as_sf(coords = c("longitude","latitude"),crs = 4326)
+
+
+# display a leaflet map --------------------------------------------------------
+map_labels <- glue::glue("<strong>{wq_meta_sf$site}</strong><br/>
+                          Currently Testing? </strong>{wq_meta_sf$currently_testing}<br/>
+                          Sewershed: {wq_meta_sf$nyc_dep_wrrf_or_sewershed}<br/>
+                         Use: {wq_meta_sf$best_uses}") %>%
+  lapply(htmltools::HTML)
+
+wq_meta_sf %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(radius = 5,
+                            label = ~map_labels,
+                            color = ~ifelse(currently_testing,"green","red"))
+
+
 
 # DOWNLOAD water quality data worksheet ---------------------------------------------
+
+# download and clean wq_data if parquet file does not already exist
+if (!file.exists("data/wq_data.parquet")) {
+
+data_names <- c("site","site_id","date","year","month","high_tide","sample_time","bacteria",
+                  "precip_t0","precip_t1","precip_t2","precip_t3","precip_t4",
+                  "precip_t5","precip_t6","notes")
 wq_data_raw <- read_sheet(wq_url,"Data")
 
 data_names <- c("site","site_id","date","year","month","high_tide","sample_time","bacteria",
@@ -128,6 +163,11 @@ wq_data <- wq_data_raw |>
   # classify bacteria levels according to NY DEP standards
   mutate(site = as.factor(site)) |>
   mutate(site_id = as.factor(site_id))
+} else {
+  # load file
+  wq_data <- arrow::read_parquet("data/wq_data.parquet")
+
+}
 
 # feature engineering
 wq_data <- wq_data %>%
@@ -135,14 +175,74 @@ wq_data <- wq_data %>%
   # make 2-day precip column since 48-hour precip is a DEP standard
   # since observation time is typically in the morning don't include the current day's precip
   # since we don't know if it came before, during or after collection
-  mutate(precip_48 = rowSums(select(., precip_t1,precip_t2), na.rm = TRUE),.after="bacteria") |>
+  mutate(precip_48 = rowSums(select(., precip_t1,precip_t2), na.rm = TRUE),.after="bacteria") %>%
+  mutate(precip_earlier = rowSums(select(., precip_t3,precip_t4,precip_t5,,precip_t6), na.rm = TRUE),.after="precip_48") %>%
   # categorize bacteria levels as quality levels
   mutate(quality = as_factor(cut(
     bacteria,
     breaks = c(-1, 34, 104, Inf),
     labels = c("Safe", "Caution", "Unsafe")
-  )))
+  ))) %>%
+  # compute time between sample time and high tide
+  mutate(time_since_high_tide = as.numeric(difftime(sample_time,high_tide,units = "hours")),
+         .after = "sample_time") %>%
+  as_tibble()
+#  EDA -------------------------------------------------------------------------
+wq_data %>%
+  # select numeric columns
+  select(where(is.numeric)) %>%
+  skimr::skim()
 
 
+# ggplot histogram of bacteria levels
+wq_data %>%
+  ggplot(aes(x = bacteria)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Histogram of Bacteria Levels",
+       x = "Bacteria Levels",
+       y = "Count")
 
+# ggplot histogram of quality levels
+wq_data %>%
+  ggplot(aes(x = quality)) +
+  geom_bar() +
+  labs(title = "Histogram of Bacteria Quality Levels",
+       x = "Quality Levels",
+       y = "Count")
 
+# plot median bacteria levels over time only for sites that have been reporting for the all time periods
+wq_10 <- wq_data |>
+  # filter out stations that have been reporting for less than 10 years
+  group_by(site) |>
+  mutate(year = year(date)) |>
+  summarise(n_years = n_distinct(year)) |>
+  filter(n_years > 9) |>
+  select(site) |>
+  inner_join(wq_data, by = "site") |>
+  ungroup() |>
+  filter(year(date) > year(Sys.Date())-11)
+
+rain_axis = 200
+last_obs <- wq$date |> max()
+first_obs <- year(last_obs)-10
+
+wq_10 |>
+  ungroup() |>
+  mutate(year = year(date),month = month(date)) |>
+  filter(year > 2011) |>
+  summarise(.by = year, median_bacteria = median(bacteria),
+            median_temp = median(temperature_f),
+            average_rainfall = mean(ghcn_precip_in)*rain_axis) |>
+  ggplot(aes(x = year, y = median_bacteria)) + geom_col(fill = "lightblue") +
+  # geom_smooth(aes(x = year, y = median_bacteria),color = "black",se = FALSE) +
+  geom_line(aes(x = year, y = median_temp), color = "red") +
+  geom_line(aes(x = year, y = average_rainfall), color = "blue") +
+  # label the y-axes
+  scale_x_continuous(breaks = seq(2000,2024,1)) +
+  # put totat_rainfall on secondary y-axis
+  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Average Daily Rainfall (Blue Line")) +
+  labs(y = "Median Bacteria Concentration (Blue Bar)\nand Temperature (Red Line)",
+       title= str_to_title("water is not getting cleaner over time"),
+       subtitle = glue::glue("{first_obs} to {last_obs}")
+  ) +
+  theme_minimal()
