@@ -1,6 +1,7 @@
 # model using just BOP WQ spreadhsheet
 # wrangle BOP spreadsheets and save as parquet files
 library(tidyverse)
+library(here)
 library(googlesheets4)
 library(rvest)
 library(duckplyr)
@@ -11,7 +12,7 @@ library(sf)
 # use duckdb for every tidyverse function
 methods_overwrite()
 
-water_body_classifications <- read_csv("data/NYDEC_water_classifications.csv",col_types = "fcc")
+water_body_classifications <- read_csv(here("data/NYDEC_water_classifications.csv"),col_types = "fcc")
 water_body_classifications
 
 # Get Water Quality Data from BOP ----------------------------------
@@ -22,7 +23,7 @@ wq_url <-
 
 
 # DOWNLOAD meta data worksheet
-wq_data_meta <- gs4_get(wq_url)
+wq_meta <- gs4_get(wq_url)
 # take 400 rows of metadata to accomodate future growth in testing stations (up to 400 <grin>)
 # assumes row 10 is column names, column A is site ID which is duplicated in column D
 wq_meta_raw <- read_sheet(wq_url,"Information",range = "B10:BA400")
@@ -105,7 +106,7 @@ wq_meta_sf %>%
 
 # DOWNLOAD water quality data worksheet ---------------------------------------------
 
-# download and clean wq_data if parquet file does not already exist
+# download and clean wq if parquet file does not already exist
 if (!file.exists("data/wq_data.parquet")) {
 
 data_names <- c("site","site_id","date","year","month","high_tide","sample_time","bacteria",
@@ -120,7 +121,7 @@ data_names <- c("site","site_id","date","year","month","high_tide","sample_time"
 
 
 # get average sample time and use that for NA sample times
-sample_time_avg <- wq_data_raw$`Sample Time` |>
+sample_time_avg <- wq_raw$`Sample Time` |>
   mean(na.rm = TRUE) |>
   as.POSIXct()
 
@@ -165,7 +166,8 @@ wq_data <- wq_data_raw |>
   mutate(site_id = as.factor(site_id))
 } else {
   # load file
-  wq_data <- arrow::read_parquet("data/wq_data.parquet")
+  wq_data <- arrow::read_parquet("data/wq_data.parquet") %>%
+    select(-precip_48)
 
 }
 
@@ -175,8 +177,10 @@ wq_data <- wq_data %>%
   # make 2-day precip column since 48-hour precip is a DEP standard
   # since observation time is typically in the morning don't include the current day's precip
   # since we don't know if it came before, during or after collection
+  mutate(precip_week = rowSums(select(., starts_with("precip")), na.rm = TRUE),.after="bacteria") %>%
   mutate(precip_48 = rowSums(select(., precip_t1,precip_t2), na.rm = TRUE),.after="bacteria") %>%
   mutate(precip_earlier = rowSums(select(., precip_t3,precip_t4,precip_t5,,precip_t6), na.rm = TRUE),.after="precip_48") %>%
+  select(-precip_t1,-precip_t2,-precip_t3,-precip_t4,-precip_t5,-precip_t6) %>%
   # categorize bacteria levels as quality levels
   mutate(quality = as_factor(cut(
     bacteria,
@@ -197,24 +201,31 @@ wq_data %>%
 # ggplot histogram of bacteria levels
 wq_data %>%
   ggplot(aes(x = bacteria)) +
-  geom_histogram(bins = 30) +
+  geom_histogram(bins = 30,fill = "lightblue") +
   labs(title = "Histogram of Bacteria Levels",
        x = "Bacteria Levels",
-       y = "Count")
+       y = "Count") +
+  theme_minimal()
 
 # ggplot histogram of quality levels
 wq_data %>%
   ggplot(aes(x = quality)) +
-  geom_bar() +
+  geom_bar(fill = "lightblue") +
   labs(title = "Histogram of Bacteria Quality Levels",
        x = "Quality Levels",
-       y = "Count")
+       y = "Count") +
+  theme_minimal()
+
+# get average daily rainfall by year
+annl_rain <- wq_data %>%
+  group_by(year) %>%
+  summarise(annual_rainfall = mean(precip_week,na.rm = TRUE)*52)
+
 
 # plot median bacteria levels over time only for sites that have been reporting for the all time periods
 wq_10 <- wq_data |>
   # filter out stations that have been reporting for less than 10 years
   group_by(site) |>
-  mutate(year = year(date)) |>
   summarise(n_years = n_distinct(year)) |>
   filter(n_years > 9) |>
   select(site) |>
@@ -222,27 +233,27 @@ wq_10 <- wq_data |>
   ungroup() |>
   filter(year(date) > year(Sys.Date())-11)
 
-rain_axis = 200
-last_obs <- wq$date |> max()
+last_obs <- wq_data$date |> max()
 first_obs <- year(last_obs)-10
+rain_axis <-1
 
 wq_10 |>
   ungroup() |>
-  mutate(year = year(date),month = month(date)) |>
   filter(year > 2011) |>
-  summarise(.by = year, median_bacteria = median(bacteria),
-            median_temp = median(temperature_f),
-            average_rainfall = mean(ghcn_precip_in)*rain_axis) |>
+  summarise(.by = year, median_bacteria = median(bacteria)) %>%
+  left_join(annl_rain) %>%
+  arrange(year) |>
   ggplot(aes(x = year, y = median_bacteria)) + geom_col(fill = "lightblue") +
-  # geom_smooth(aes(x = year, y = median_bacteria),color = "black",se = FALSE) +
-  geom_line(aes(x = year, y = median_temp), color = "red") +
-  geom_line(aes(x = year, y = average_rainfall), color = "blue") +
+  geom_line(aes(x = year, y = annual_rainfall), color = "blue") +
+  geom_hline(yintercept = 34, color = "red") +
+  annotate("text", x = 2016, y = 34, label = '"Safe" Level = 34 Colonies', vjust = -1) +
   # label the y-axes
   scale_x_continuous(breaks = seq(2000,2024,1)) +
   # put totat_rainfall on secondary y-axis
-  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Average Daily Rainfall (Blue Line")) +
-  labs(y = "Median Bacteria Concentration (Blue Bar)\nand Temperature (Red Line)",
+  scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Annual Rainfall (Blue Line")) +
+  labs(y = "Median Bacteria Concentration (Blue Bar)",
        title= str_to_title("water is not getting cleaner over time"),
-       subtitle = glue::glue("{first_obs} to {last_obs}")
+       subtitle = glue::glue("{first_obs} to {last_obs} All Monitored Sites in NY Harbor")
   ) +
   theme_minimal()
+
