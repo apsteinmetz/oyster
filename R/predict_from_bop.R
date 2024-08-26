@@ -14,6 +14,7 @@ methods_overwrite()
 
 water_body_classifications <- read_csv(here("data/NYDEC_water_classifications.csv"),col_types = "fcc")
 water_body_classifications
+SAFE = 34
 
 # Get Water Quality Data from BOP ----------------------------------
 
@@ -253,7 +254,44 @@ wq_10 |>
   scale_y_continuous(sec.axis = sec_axis(~./rain_axis, name = "Annual Rainfall (Blue Line")) +
   labs(y = "Median Bacteria Concentration (Blue Bar)",
        title= str_to_title("water is not getting cleaner over time"),
-       subtitle = glue::glue("{first_obs} to {last_obs} All Monitored Sites in NY Harbor")
+       subtitle = glue::glue("Sites in NY Harbor Reporting Continuously from {first_obs} to {last_obs}")
   ) +
   theme_minimal()
+
+# show boxplot of cleanest and dirtiest
+median_all <- median(wq_data$bacteria)
+site_boxplots <- function(wq_data,label="Cleanest") {
+
+# show a boxplot of bacteria concentration by site
+wq_data |>
+  # avoid Inf log values
+  # mutate(bacteria = bacteria + .001) |>
+  group_by(site) |>
+  nest() |>
+  rowwise() |>
+  mutate(n_obs = nrow(data)) |>
+  filter(n_obs > 100) |>
+  mutate(median_bacteria = median(data$bacteria)) |>
+  ungroup() |>
+  case_when(
+      label == "Cleanest" ~ slice_min(median_bacteria,n = 10),
+      label == "Dirtiest" ~ slice_max(median_bacteria,n = 10)
+    ) |>
+  unnest(data) |>
+  ggplot(aes(x = reorder(factor(site),median_bacteria), y = bacteria)) +
+  scale_y_log10(oob = scales::squish_infinite) +
+  geom_boxplot(fill = "lightblue") +
+  # geom_violin(draw_quantiles = .5) +
+  # geom_jitter(width = .1) +
+  # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+
+  labs(title = glue::glue("{label} Sites"),
+       subtitle = "Based on Median Bacteria Count",
+       x = "Site",
+       y = "Boxplot of Enterococci Concentration\n(Log Scale)") +
+  coord_flip() +
+  geom_hline(yintercept = SAFE,color="red",linewidth=2) +
+  annotate("label", x = 9, y = SAFE, label = "Safe\nLevel", color = "red") +
+  theme_minimal()
+}
 
