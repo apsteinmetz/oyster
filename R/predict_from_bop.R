@@ -8,9 +8,9 @@ library(duckplyr)
 library(leaflet)
 library(htmltools)
 library(sf)
+library(tidymodels)
 
-# use duckdb for every tidyverse function
-methods_overwrite()
+source(here("r/func_pretty_truth_table.R"))
 
 water_body_classifications <- read_csv(here("data/NYDEC_water_classifications.csv"),col_types = "fcc")
 water_body_classifications
@@ -191,7 +191,24 @@ wq_data <- wq_data %>%
   # compute time between sample time and high tide
   mutate(time_since_high_tide = as.numeric(difftime(sample_time,high_tide,units = "hours")),
          .after = "sample_time") %>%
+  # we won't be doing any month math so we can make it a factor
+  mutate(month = as.factor(month)) %>%
   as_tibble()
+# add some meta data that might be interesting in prediction
+# add water body type,  water body and sewershed from metadata
+wq_data <- wq_data %>%
+  left_join(by = "site_id",select(wq_meta,
+                   site_id,
+                   water_body,
+                   nys_dec_water_body_classification,
+                   nyc_dep_wrrf_or_sewershed)
+            ) |>
+  # change all character columns to factors
+  mutate(across(where(is.character), as.factor)) |>
+  # rename columns
+  rename(water_class = nys_dec_water_body_classification,
+         sewershed = nyc_dep_wrrf_or_sewershed)
+
 #  EDA -------------------------------------------------------------------------
 wq_data %>%
   # select numeric columns
@@ -215,6 +232,40 @@ wq_data %>%
   labs(title = "Histogram of Bacteria Quality Levels",
        x = "Quality Levels",
        y = "Count") +
+  theme_minimal()
+
+# histogram of months
+wq_data |>
+  ggplot(aes(x = as.factor(month))) +
+  geom_bar(fill = "lightblue") +
+  labs(title = "Histogram of Months",
+       x = "Month",
+       y = "Count") +
+  theme_minimal()
+
+# distribution of numeric features
+wq_data |>
+  ungroup() |>
+  select(-year,-bacteria) |>
+  select(is.numeric) |>
+  gather() |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins=20,fill = "lightblue") +
+  facet_wrap(~key, scales = "free") +
+  labs(title = "Distribution of All Numeric Variables",
+       y = "Count",x="") +
+  theme_minimal()
+
+# show that reporting stations have increased over time
+wq_data |>
+  mutate(year = year(date)) |>
+  group_by(year) |>
+  summarise(n = n_distinct(site_id)) |>
+  ggplot(aes(x = year, y = n)) +
+  geom_col(fill = "lightblue") +
+  labs(title = "Reporting Stations Have Steadily Increased",
+       x = "Year",
+       y = "Number of Stations") +
   theme_minimal()
 
 # get average daily rainfall by year
@@ -258,40 +309,170 @@ wq_10 |>
   ) +
   theme_minimal()
 
-# show boxplot of cleanest and dirtiest
-median_all <- median(wq_data$bacteria)
-site_boxplots <- function(wq_data,label="Cleanest") {
+# show boxplot of cleanest and dirtiest ----------------------------------------
+site_boxplots <- function(wq_data, label = "Cleanest") {
+  median_all <- median(wq_data$bacteria)
+  # show a boxplot of bacteria concentration by site
+  selected_sites <- wq_data |>
+    # avoid Inf log values
+    # mutate(bacteria = bacteria + .001) |>
+    group_by(site) |>
+    nest() |>
+    rowwise() |>
+    mutate(n_obs = nrow(data)) |>
+    filter(n_obs > 100) |>
+    mutate(median_bacteria = median(data$bacteria)) |>
+    ungroup()
 
-# show a boxplot of bacteria concentration by site
-wq_data |>
-  # avoid Inf log values
-  # mutate(bacteria = bacteria + .001) |>
-  group_by(site) |>
-  nest() |>
-  rowwise() |>
-  mutate(n_obs = nrow(data)) |>
-  filter(n_obs > 100) |>
-  mutate(median_bacteria = median(data$bacteria)) |>
-  ungroup() |>
-  case_when(
-      label == "Cleanest" ~ slice_min(median_bacteria,n = 10),
-      label == "Dirtiest" ~ slice_max(median_bacteria,n = 10)
-    ) |>
-  unnest(data) |>
-  ggplot(aes(x = reorder(factor(site),median_bacteria), y = bacteria)) +
-  scale_y_log10(oob = scales::squish_infinite) +
-  geom_boxplot(fill = "lightblue") +
-  # geom_violin(draw_quantiles = .5) +
-  # geom_jitter(width = .1) +
-  # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+  if (label == "Cleanest") {
+    selected_sites <- slice_min(selected_sites, order_by = median_bacteria, n = 10)
+  } else {
+    selected_sites <- slice_max(selected_sites, order_by = median_bacteria, n = 10)
+  }
 
-  labs(title = glue::glue("{label} Sites"),
-       subtitle = "Based on Median Bacteria Count",
-       x = "Site",
-       y = "Boxplot of Enterococci Concentration\n(Log Scale)") +
-  coord_flip() +
-  geom_hline(yintercept = SAFE,color="red",linewidth=2) +
-  annotate("label", x = 9, y = SAFE, label = "Safe\nLevel", color = "red") +
-  theme_minimal()
+  selected_sites |>
+    unnest(data) |>
+    ggplot(aes(x = reorder(factor(site), median_bacteria), y = bacteria)) +
+    scale_y_log10(oob = scales::squish_infinite) +
+    geom_boxplot(fill = "lightblue") +
+    # geom_violin(draw_quantiles = .5) +
+    # geom_jitter(width = .1) +
+    # annotate("text", x = log(SAFE)-2, y = 1500, label = "Safe Levels", color = "darkgreen") +
+
+    labs(
+      title = glue::glue("{label} Sites"),
+      subtitle = "Based on Median Bacteria Count",
+      x = "Site",
+      y = "Boxplot of Enterococci Concentration\n(Log Scale)"
+    ) +
+    coord_flip() +
+    geom_hline(yintercept = SAFE,
+               color = "red",
+               linewidth = 2) +
+    annotate(
+      "label",
+      x = 9,
+      y = SAFE,
+      label = "Safe\nLevel",
+      color = "red"
+    ) +
+    theme_minimal()
 }
+
+site_boxplots(wq_data, "Cleanest")
+site_boxplots(wq_data, "Dirtiest")
+
+
+# Model ------------------------------------------------------------------------
+# select only variables for model
+wq_subset <- wq_data %>%
+  select(
+    quality,
+    site_id,
+    year,
+    month,
+    time_since_high_tide,
+    precip_t0,
+    precip_48,
+    precip_earlier,
+    water_body,
+    water_class,
+    sewershed
+  ) %>%
+  mutate(year = as.factor(year), month = as.factor(month)) |>
+  # remove rows with missing values
+  drop_na()
+
+
+# split data into training and testing sets
+# set.seed(123)
+wq_split <- initial_split(wq_subset, prop = 0.75, strata = quality)
+wq_train <- training(wq_split)
+wq_test <- testing(wq_split)
+
+# create a recipe
+wq_recipe <- recipe(quality ~ ., data = wq_train) |>
+  step_normalize(all_numeric_predictors())
+
+wq_rf <- rand_forest() |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+wq_wf <- workflow() |>
+  add_model(wq_rf) |>
+  add_recipe(wq_recipe)
+
+# fit with training data
+wq_fit<- wq_wf |>
+  fit(data = wq_train)
+
+# show variable importance
+wq_fit |>
+  extract_fit_parsnip() |>
+  vip::vip(aesthetics = list(fill = "blue")) +
+  labs(title = "Water Quality Variable Importance",
+       subtitle = 'Random Forest Classifier to Predict "Safe", "Caution" or "Unsafe ') +
+  theme_minimal()
+
+wq_pred <- wq_fit |>
+  augment(new_data = wq_test)
+
+# plot prediction confidence
+wq_pred |>
+  ggplot(aes(x = .pred_Safe, y = .pred_Unsafe, color = quality)) +
+  facet_wrap(~quality) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = c("green", "orange","red")) +
+  labs(title = "Prediction Confidence",
+       subtitle = "Many predictions are Confidently Wrong",
+       x = "Probablility Actual Is Safe",
+       y = "Probablility Actual Is Unsafe")
+
+# show a confusion matrix
+xt <- wq_pred |>
+  conf_mat(truth = quality, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Truth) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+xt_count <- xt |>
+  select(-.prop) |>
+  pivot_wider(names_from = Prediction,values_from = n) |>
+  rowwise() |>
+  mutate(Total = sum(c(Safe,Caution,Unsafe)))
+
+gt_domain <- xt_count |> select(-Total,-Truth) |> max()
+
+xt_prop <- xt |>
+  select(-n) |>
+  pivot_wider(names_from = Prediction,values_from = .prop) |>
+  rowwise() |>
+  mutate(Total = sum(c(Safe,Caution,Unsafe)))
+
+
+truth_table(xt_prop,"prop")
+
+# plot a ROC curve
+wq_pred_cl |>
+  roc_curve(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe) |>
+  ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  theme_bw()
+
+wq_pred_cl |>
+  roc_auc(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe)
+
+wq_pred_cl |>
+  roc_auc(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe,estimator = "macro_weighted")
+
+wq_pred_cl |>
+  metrics(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe,estimate = .pred_class)
+
+wq_subset |> ggplot(aes(quality,time_since_high_tide)) + geom_boxplot()
 
