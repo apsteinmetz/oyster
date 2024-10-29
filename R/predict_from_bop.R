@@ -105,6 +105,12 @@ wq_meta_sf %>%
 
 
 
+# show sewershed map
+# <iframe width='100%' height='520' frameborder='0'
+# src='https://openseweratlas.tumblr.com/dryweathermap'
+# allowfullscreen webkitallowfullscreen mozallowfullscreen oallowfullscreen msallowfullscreen>
+# </iframe>
+
 # DOWNLOAD water quality data worksheet ---------------------------------------------
 
 # download and clean wq if parquet file does not already exist
@@ -122,7 +128,7 @@ data_names <- c("site","site_id","date","year","month","high_tide","sample_time"
 
 
 # get average sample time and use that for NA sample times
-sample_time_avg <- wq_raw$`Sample Time` |>
+sample_time_avg <- wq_data_raw$`Sample Time` |>
   mean(na.rm = TRUE) |>
   as.POSIXct()
 
@@ -165,10 +171,11 @@ wq_data <- wq_data_raw |>
   # classify bacteria levels according to NY DEP standards
   mutate(site = as.factor(site)) |>
   mutate(site_id = as.factor(site_id))
+  # write to parquet
+  arrow::write_parquet(wq_data,"data/wq_data.parquet")
 } else {
   # load file
-  wq_data <- arrow::read_parquet("data/wq_data.parquet") %>%
-    select(-precip_48)
+  wq_data <- arrow::read_parquet("data/wq_data.parquet")
 
 }
 
@@ -457,7 +464,7 @@ xt_prop <- xt |>
 truth_table(xt_prop,"prop")
 
 # plot a ROC curve
-wq_pred_cl |>
+wq_pred |>
   roc_curve(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe) |>
   ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
   geom_path() +
@@ -465,13 +472,13 @@ wq_pred_cl |>
   coord_equal() +
   theme_bw()
 
-wq_pred_cl |>
+wq_pred |>
   roc_auc(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe)
 
-wq_pred_cl |>
+wq_pred |>
   roc_auc(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe,estimator = "macro_weighted")
 
-wq_pred_cl |>
+wq_pred |>
   metrics(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe,estimate = .pred_class)
 
 wq_subset |> ggplot(aes(quality,time_since_high_tide)) + geom_boxplot()
