@@ -447,13 +447,14 @@ wq_fit |>
        subtitle = 'Random Forest Classifier to Predict "Safe", "Caution" or "Unsafe ') +
   theme_minimal()
 
-wq_pred <- wq_fit |>
-  augment(new_data = wq_test)
 ```
 
 
 ```{r}
 # plot prediction confidence
+wq_pred <- wq_fit |>
+  augment(new_data = wq_test)
+
 wq_pred |>
   ggplot(aes(x = .pred_Safe, y = .pred_Unsafe, color = quality)) +
   facet_wrap(~quality) +
