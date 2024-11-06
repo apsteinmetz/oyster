@@ -1,5 +1,5 @@
 ---
-title: "Predicting Water Quality"
+title: "Predicting Water Quality with Tidymodels"
 author: "Art Steinmetz"
 format: 
   html:
@@ -8,13 +8,19 @@ execute:
   warning: false
 ---
 
+## Motivation
+
+This is an exercise in using machine learning to predict the level of harmful bacteria in New York Harbor based on environmental factors like tidal conditions, rainfall and location. We use the [Tidymodel](https://www.tidymodels.org/) tools from Posit.co to build the model and public data provided by [The Billion Oyster Project](https://www.billionoysterproject.org/) using volunteer water sampling.
+
+The model shows some ability to predict "safe" and "unacceptable" bacterial concentrations but false predictions are quite high.
+
 ## Oyster Farm to the World
 
-New York Harbor is one of the world's greatest natural harbors. Those of us that live in New York City today see the history of what was in the piers. We can easily imagine the enormous ship traffic the piers once supported. What we can't see are the echoes of the vibrant ecosystem of marine life that once thrived beneath the surface. It sustained a rich diversity of marine life thate provided abundant sustenance for the indigenous people before the arrival of Europeans and later for the colonists and migrants who arrived in their millions.
+New York Harbor is one of the world's greatest natural harbors. Those of us that live in New York City today see it mainly as an obstacle that we travel over or under. In our more reflective moodes we see the history of what was in the piers. We can easily imagine the enormous ship traffic the piers once supported. What we can't see are the echoes of the vibrant ecosystem of marine life that once thrived beneath the surface. It sustained a rich diversity of marine life that provided abundant sustenance for the indigenous people before the arrival of Europeans and later for the colonists and migrants who arrived in their millions.
 
 ![](img/George_Schlegel_-_George_Degen_-_New_York_1873.jpg){width="500"}
 
-Oysters were the keystone species for this ecosystem. They were so abundant that they, as filter feeders, filtered the entire volume of the harbor every few days. They provided habitat for other marine life and helped to stabilize the shoreline. At one point fully a third of all the world's oyster harvest came from New York Harbor. Pearl Street in Manhattan was literally paved with oyster shells. The oyster was the food of rich and poor alike. Stories of the colorful characters in Gilded Age New York are replete with oyster "orgies" at Delmonico's restaurant. Oysters was so important to the economy of the city that before it became "The Big Apple" it was called "The Big Oyster."
+Oysters were the keystone species for this ecosystem. They were so abundant that they, as filter feeders, filtered the entire volume of the harbor every few days. They provided habitat for other marine life and helped to stabilize the shoreline. At one point fully a third of all the world's oyster harvest came from New York Harbor. Pearl Street in Manhattan was literally paved with oyster shells. The oyster was the food of rich and poor alike. Stories of the colorful characters in Gilded Age New York are replete with oyster "orgies" at Delmonico's restaurant. Oysters were so important to the economy of the city that before it became "The Big Apple" it was called "The Big Oyster."
 
 ![Delmonico's 1899. Oysters Have Pride of Place.](img/delmonicos_1899.png){width="500"}
 
