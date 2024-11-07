@@ -20,7 +20,7 @@ New York Harbor is one of the world's greatest natural harbors. Those of us that
 
 ![](img/George_Schlegel_-_George_Degen_-_New_York_1873.jpg){width="500"}
 
-Oysters were the keystone species for this ecosystem. They were so abundant that they, as filter feeders, filtered the entire volume of the harbor every few days. They provided habitat for other marine life and helped to stabilize the shoreline. At one point fully a third of all the world's oyster harvest came from New York Harbor. Pearl Street in Manhattan was literally paved with oyster shells. The oyster was the food of rich and poor alike. Stories of the colorful characters in Gilded Age New York are replete with oyster "orgies" at Delmonico's restaurant. Oysters were so important to the economy of the city that before it became "The Big Apple" it was called "The Big Oyster."
+Oysters were the keystone species for this ecosystem. They were so abundant that they, as filter feeders, filtered the entire volume of the harbor every few days. They provided habitat for other marine life and helped to stabilize the shoreline. At one point fully a third of all the world's oyster harvest came from New York Harbor. Pearl Street in Manhattan was paved with oyster shells (although pearls don't come from oysters). The oyster was the food of rich and poor alike. Stories of the colorful characters in Gilded Age New York are replete with oyster "orgies" at Delmonico's restaurant. Oysters were so important to the economy of the city that before it became "The Big Apple" it was called "The Big Oyster."
 
 ![Delmonico's 1899. Oysters Have Pride of Place.](img/delmonicos_1899.png){width="500"}
 
@@ -161,6 +161,11 @@ wq_data <- arrow::read_parquet(here("data/wq_data.parquet"))
 ```
 
 ```{r show map of stations}
+
+wq_meta <- wq_data %>% 
+  summarise(.by = site,median_bact = median(bacteria)) %>% 
+  right_join(wq_meta,by = "site")
+
 # convert wq_meta into a simple features object
 wq_meta_sf <- wq_meta |>
   left_join(water_body_classifications,
@@ -178,9 +183,9 @@ map_labels <- glue::glue("<strong>{wq_meta_sf$site}</strong><br/>
 wq_meta_sf %>%
   leaflet() %>%
   addTiles() %>%
-  addCircleMarkers(radius = 5,
-                            label = ~map_labels,
-                            color = ~ifelse(currently_testing,"green","red"))
+  addCircleMarkers(radius = ~log(median_bact),
+                   label = ~map_labels,
+                   color = ~ifelse(currently_testing,"green","red"))
 
 ```
 
