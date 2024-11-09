@@ -39,9 +39,7 @@ library(leaflet)
 library(htmltools)
 library(sf)
 library(tidymodels)
-
-# import code to make pretty truth tables
-source(here("r/func_pretty_truth_table.R"))
+library(gt)
 
 # enterococci thresholds
 SAFE = 34
@@ -160,37 +158,18 @@ wq_data <- arrow::read_parquet(here("data/wq_data.parquet"))
 
 ```
 
-```{r show map of stations}
-# convert wq_meta into a simple features object
-wq_meta_sf <- wq_meta |>
-  left_join(water_body_classifications,
-            by = c("nys_dec_water_body_classification" = "water_body_class")) %>%
-  st_as_sf(coords = c("longitude","latitude"),crs = 4326)
-
-
-# display a leaflet map --------------------------------------------------------
-map_labels <- glue::glue("<strong>{wq_meta_sf$site}</strong><br/>
-                          Currently Testing? </strong>{wq_meta_sf$currently_testing}<br/>
-                          Sewershed: {wq_meta_sf$nyc_dep_wrrf_or_sewershed}<br/>
-                         Use: {wq_meta_sf$best_uses}") %>%
-  lapply(htmltools::HTML)
-
-wq_meta_sf %>%
-  leaflet() %>%
-  addTiles() %>%
-  addCircleMarkers(radius = 5,
-                            label = ~map_labels,
-                            color = ~ifelse(currently_testing,"green","red"))
-
-```
-
-### show sewershed map
-
-<iframe width="100%" height="520" frameborder="0" src="https://openseweratlas.tumblr.com/dryweathermap">
-
-</iframe>
-
 ## Data Cleaning
+
+While we cleaned up the data in the previous section, we still might want to some feature engineering to get the data ready for modeling. In particular, the bacterial levels are classified according to NY DEP standards as "SAFE" or "UNSAFE" with a another category in between that indicates heightened vigilance which we'll call "CAUTION,"  so let's make a column for that.  
+
+The data contains rainfall amounts for each day preceding the sample date.  The NY DEP standard is to use the 48-hour rainfall amount as a predictor of bacterial levels. We'll aggregate up the rainfall columns into three non-overlapping intervals, same day, previous 48 hours and earlier days in the week.  It's worth noting that rainfall for the sample day is for the entire 24-hour period and not just preceding the time of the sample.
+
+While we have the precise location of each sampling site it will be more useful to have general location information.  This will include the water body classification, the sewershed, the name of the body of water and the lab processing the samples.
+
+The month is a cyclical feature.  December, month number 12 is closer in climate to month number 1 than it is to month number 6, so we'll recode the month numbers to reflect that, setting August as the hottest month.
+
+Finally, we'll convert all NAs in the factor columns to a "missing" level.  This will let us keep rows with NA in the models but all missing will have the same value.  This is a choice that could be revisited later.
+
 
 ```{r feature engineering}
 # get all levels of lab_analysis columns
@@ -228,8 +207,6 @@ wq_data <- wq_data %>%
   # compute time between sample time and high tide
   mutate(time_since_high_tide = as.numeric(difftime(sample_time,high_tide,units = "hours")),
          .after = "sample_time") %>%
-  # we won't be doing any month math so we can make it a factor
-  mutate(month = as.factor(month)) %>%
   as_tibble()
 # add some meta data that might be interesting in prediction
 # add water body type,  water body and sewershed from metadata
@@ -245,9 +222,52 @@ wq_data <- wq_data %>%
   # rename columns
   rename(water_class = nys_dec_water_body_classification,
          sewershed = nyc_dep_wrrf_or_sewershed)
+
+# create a column that corresponds the relative temperature of the month
+# August is the hottest month in NYC
+months_temp <- tibble(month = 1:12, month_temp = c((6-abs((1:12-6)))[12],(6-abs((1:12-6)))[1:11]))
+wq_data2 <- wq_data |>
+  left_join(wq_data,
+            months_temp,
+            by = "month",
+            relationship = "many-to-one")
 ```
 
 ## Exploratory Data Analysis
+
+Let's start by looking at a map of all the sampling sites.  Many sites are no longer being tested.  The upper half of Manhattan, both on the Hudson side and the East River side are not included in the most recent data.  We have to be careful about drawing conclusions about changes over time for the whole sampling set.
+
+```{r show map of stations}
+# convert wq_meta into a simple features object
+wq_meta_sf <- wq_meta |>
+  left_join(water_body_classifications,
+            by = c("nys_dec_water_body_classification" = "water_body_class")) %>%
+  st_as_sf(coords = c("longitude","latitude"),crs = 4326)
+
+
+# display a leaflet map --------------------------------------------------------
+map_labels <- glue::glue("<strong>{wq_meta_sf$site}</strong><br/>
+                          Currently Testing? </strong>{wq_meta_sf$currently_testing}<br/>
+                          Sewershed: {wq_meta_sf$nyc_dep_wrrf_or_sewershed}<br/>
+                         Use: {wq_meta_sf$best_uses}") %>%
+  lapply(htmltools::HTML)
+
+wq_meta_sf %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(radius = 5,
+                            label = ~map_labels,
+                            color = ~ifelse(currently_testing,"green","red"))
+
+```
+
+The data contains the "sewershed" for each site.  Sewersheds are areas of the city that drain into the rivers from a particular section of the sewer system and treatment plant.  It may be that particular sewersheds are more likely to overflow during heavy rain and thus more prone to high bacteria levels.
+
+<iframe width="100%" height="520" frameborder="0" src="https://openseweratlas.tumblr.com/dryweathermap">
+
+</iframe>
+
+
 
 ::: {layout-ncol="2"}
 ```{r bacteria_hist}
@@ -356,6 +376,7 @@ site_boxplots <- function(wq_data, label = "Cleanest") {
   selected_sites <- wq_data |>
     # avoid Inf log values
     # mutate(bacteria = bacteria + .001) |>
+    # mutate(bacteria = ifelse(bacteria == 0, 1, bacteria)) |> 
     group_by(site) |>
     nest() |>
     rowwise() |>
@@ -606,6 +627,9 @@ wq_pred |>
 ```
 
 ```{r}
-wq_subset |> ggplot(aes(quality,time_since_high_tide)) + geom_boxplot()
+wq_subset |> ggplot(aes(quality,time_since_high_tide)) + 
+  geom_boxplot(fill = "lightblue") +
+  theme_minimal()
+  
 
 ```
