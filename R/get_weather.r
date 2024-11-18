@@ -100,3 +100,12 @@ if (UPDATE){
 }
 
 save(weather,file="data/weather.rdata")
+# ------------------------------------------------------------------------
+# get precip only for NYC DEP water data
+years = 1986:2024
+# precip_nyc <- tibble()
+for (y in years){
+  precip_nyc <- bind_rows(precip_nyc,get_weather_year(y,datatypeid = "PRCP"))
+}
+save(precip_nyc,file="data/precip_nyc.rdata")
+

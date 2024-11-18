@@ -229,7 +229,6 @@ arrow::write_parquet(wq_data_dep_subset,"data/wq_data_dep_subset.parquet")
 # IS THIS GOOD PRACTICE? I DON'T KNOW.
 wq_data_dep_imputed <- wq_data_dep_subset |>
   mutate(date = as.Date(sample_datetime)) |>
-  group_by(date) |>
-  mutate(across(where(is.numeric), ~if_else(is.na(.), mean(., na.rm = TRUE), .)))
+  mutate(.by = date,across(where(is.numeric), ~if_else(is.na(.), mean(., na.rm = TRUE), .)))
 
 arrow::write_parquet(wq_data_dep_imputed,"data/wq_data_dep_imputed.parquet")
