@@ -85,7 +85,7 @@ fix_raw_weather <- function(weather_raw) {
                 values_from = "value") %>%
     transmute(date,
               station,
-              TEMP = c_to_f((TMIN + TMAX) / 20),
+#              TEMP = c_to_f((TMIN + TMAX) / 20),
               PRCP = mm_to_in(PRCP / 100))
 }
 
@@ -107,5 +107,7 @@ years = 1986:2024
 for (y in years){
   precip_nyc <- bind_rows(precip_nyc,get_weather_year(y,datatypeid = "PRCP"))
 }
-save(precip_nyc,file="data/precip_nyc.rdata")
+save(precip_nyc_raw,file="data/precip_nyc_raw.rdata")
 
+precip_nyc <- fix_raw_weather(precip_nyc_raw)
+save(precip_nyc,file="data/precip_nyc.rdata")
