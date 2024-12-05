@@ -1,9 +1,10 @@
 ---
-title: "Predicting Water Quality with Tidymodels"
+title: "Predicting Water Quality in New York Harbor"
 author: "Art Steinmetz"
+date: "2024-12-03"
 format: 
-  typst:
-    echo: false
+  # typst:
+  #  echo: false
   html:
     code-fold: true
 execute:
@@ -12,23 +13,23 @@ execute:
 
 ## Motivation
 
-This is an exercise in using machine learning to predict the level of harmful bacteria in New York Harbor based on environmental factors like tidal conditions, rainfall and location. Among the reasons this is useful is understanding how to rebuild a marine life ecosystem in the harbor, where oysters were a keystone species. We use the [Tidymodel](https://www.tidymodels.org/) tools from Posit.co to build the model and public data provided by [The Billion Oyster Project](https://www.billionoysterproject.org/) using volunteer water sampling.
+This is an exercise in using machine learning to predict the level of harmful bacteria in New York Harbor based on environmental factors like tidal conditions, rainfall and location. Among the reasons this is useful is understanding how to rebuild a marine life ecosystem in the harbor, where oysters were a keystone species. We use the R data science language,  [Tidymodel](https://www.tidymodels.org/) tools from Posit.co to build the model and public data provided by [The Billion Oyster Project](https://www.billionoysterproject.org/) using volunteer water sampling.
 
 The model shows some ability to predict "safe" and "unacceptable" bacterial concentrations but false predictions are quite high.
 
 ## Oyster Farm to the World
 
-New York Harbor is one of the world's greatest natural harbors. Those of us that live in New York City today see it mainly as an obstacle that we travel over or under. In our more reflective moods we see the history of what was in the piers. We can easily imagine the enormous ship traffic the piers once supported. What we can't see are the echoes of the vibrant ecosystem of marine life that once thrived beneath the surface. It sustained a rich diversity of marine life that provided abundant sustenance for the indigenous people before the arrival of Europeans and later for the colonists and migrants who arrived in their millions.
+New York Harbor is one of the world's greatest natural harbors. Those of us who live in New York City today see it mainly as an obstacle that we travel over or under. In our more reflective moods we see the history of what was in the piers. We can easily imagine the enormous ship traffic the piers once supported. What we can't see are the echoes of the vibrant ecosystem of marine life that once thrived beneath the surface. The harbor sustained a rich diversity of marine life that provided abundant sustenance for the indigenous people before the arrival of Europeans and later for the colonists and migrants who arrived in their millions.
 
 ![](img/George_Schlegel_-_George_Degen_-_New_York_1873.jpg){width="auto"}
 
-Oysters were the keystone species for this ecosystem. They were so abundant that they, as filter feeders, filtered the entire volume of the harbor every few days. They provided habitat for other marine life and helped to stabilize the shoreline. At one point fully a third of all the world's oyster harvest came from New York Harbor. Pearl Street in Manhattan was the site of a giant oyster shell midden left by the Lenape people. The oyster was the food of rich and poor alike. Stories of the colorful characters in Gilded Age New York are replete with oyster orgies at Delmonico's restaurant. Oysters were so important to the economy of the city that before it became "The Big Apple" it was called "The Big Oyster."
+Oysters were the keystone species for this ecosystem. They were so abundant that they, as filter feeders, filtered the entire volume of the harbor every few days. They provided habitat for other marine life and helped to stabilize the shoreline. At one point fully a third of all the World's oyster harvest came from New York Harbor. Pearl Street in Manhattan was the site of a giant oyster shell midden left by the Lenape people. The oyster was the food of rich and poor alike. Stories of the colorful characters in Gilded Age New York are replete with oyster orgies at Delmonico's restaurant. Oysters were so important to the economy of the city that before it became "The Big Apple" it was called "The Big Oyster."
 
 ![Delmonico's 1899. Oysters Have Pride of Place.(25 cents, not dollars!)](img/delmonicos_1899.png){width="auto"}
 
-Alas, by the late 19th century, the oyster beds were so depleted that the oyster industry collapsed. The risk of over-harvesting was recognized as early as 1715 when "An Act for Preserving of Oysters" was passed but the law was suspended in 1807 and harvesting became relentless. This was also the harbinger of the harbor's decline as species up the food chain suffered in parallel. Pollution was the final blow. Industry along the Hudson River flushed toxins downstream and , in 1856, the ["Combined Sewer Outflow"](https://www.nyc.gov/site/dep/water/combined-sewer-overflows.page) system was established. This combines storm water drainage with raw sewage sent to treatment plants. During heavy rain, the system overflows and raw sewage is pumped into the harbor. After the passage of the Clean Water Act in 1972 industrial pollution declined but, incredibly, the CSO remains and is the major source of pollutants around the city.
+Alas, by the late 19th century, the oyster beds were so depleted that the oyster industry collapsed. The risk of over-harvesting was recognized as early as 1715 when "An Act for Preserving of Oysters" was passed but the law was suspended in 1807 and harvesting became relentless. This was also the harbinger of the harbor's decline as species up the food chain suffered in parallel. Pollution was the final blow. Industry along the Hudson River flushed toxins downstream and, in 1856, the ["Combined Sewer Outflow"](https://www.nyc.gov/site/dep/water/combined-sewer-overflows.page) system was established. This combines storm water drainage with raw sewage sent to treatment plants. During heavy rain, the system overflows and raw sewage is pumped into the harbor. After the passage of the Clean Water Act in 1972 industrial pollution declined but, incredibly, the CSO remains and is the major source of pollutants around the city.
 
-Today we understand the need to support keystone species as vital to an ecosystem. [The Billion Oyster Project (BOP)](https://www.billionoysterproject.org/) is a non-profit organization whose mission is to restore oyster reefs to New York. They are doing this work in collaboration collaboration with schools, universities, and government agencies. I have been a supporter of their mission for several years now. Getting the public to understand the importance of clean water is an important part of this effort. The project has been using volunteers to collect water quality data from the harbor since 2014 and the data available to the public in a [water quality spreadsheet](https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?usp=sharing).
+Today we understand the need to support keystone species as vital to an ecosystem. [The Billion Oyster Project (BOP)](https://www.billionoysterproject.org/) is a non-profit organization whose mission is to restore oyster reefs to New York. They are doing this work in collaboration collaboration with schools, universities, and government agencies. I have been a supporter of their mission for several years now. Getting the public to understand the importance of clean water is an important part of this effort. The project has been using volunteers to collect water quality data from the harbor since 2014 and the data are available to the public in a [water quality spreadsheet](https://docs.google.com/spreadsheets/d/1813b2nagaxZ80xRfyMZNNKySZOitro5Nt7W4E9WNQDA/edit?usp=sharing).
 
 Downloading the full spreadsheet is a bit slow and there is some cleaning involved so we'll use data files we previously created. If you want to replicate this the code for downloading and processing the spreadsheet is below.
 
@@ -180,34 +181,34 @@ wq_data <- wq_data_raw |>
 # load data files
 water_body_classifications <- read_csv(here("data/NYDEC_water_classifications.csv"),col_types = "fcc")
 wq_meta <- arrow::read_parquet(here("data/wq_meta.parquet"))
-wq_data <- arrow::read_parquet(here("data/wq_data.parquet"))
+wq_data_raw <- arrow::read_parquet(here("data/wq_data.parquet"))
 
 ```
 
 ## Data Cleaning
 
-While we cleaned up the data in the previous section, we still might want to some feature engineering to get the data ready for modeling. In particular, the bacterial levels are classified according to NY DEP standards as "SAFE" or "UNSAFE" with a another category in between that indicates heightened vigilance which we'll call "CAUTION," so let's make a column for that.
+While we cleaned up the data in the previous section, we still might want to do some feature engineering to get the data ready for modeling. In particular, the bacterial levels are classified according to NY DEP standards as "SAFE" or "UNSAFE" with a another category in between that indicates heightened vigilance which we'll call "CAUTION," so let's make a column for that.
 
-The data contains rainfall amounts for each day preceding the sample date. The NY DEP standard is to use the 48-hour rainfall amount as a predictor of bacterial levels. We'll aggregate up the rainfall columns into three non-overlapping intervals, same day, previous 48 hours and earlier days in the week. It's worth noting that rainfall for the sample day is for the entire 24-hour period and not just preceding the time of the sample.
+The data contains rainfall amounts for each day in the week preceding the sample date. The NY DEP standard is to use the 48-hour rainfall amount as a predictor of bacterial levels. We'll aggregate up the rainfall columns into three non-overlapping intervals, same day, previous 48 hours and earlier days in the week. It's worth noting that rainfall for the sample day is for the entire 24-hour period and not just preceding the time of the sample.
 
-While we have the precise location of each sampling site it will be more useful to have general location information. This will include the water body classification, the sewershed, the name of the body of water and the lab processing the samples.
+While we have the precise location of each sampling site it might be useful to have general location information. This will include the water body classification, the sewershed, the name of the body of water and the lab processing the samples.
 
 The month is a cyclical feature. December, month number 12, is closer in climate to month number 1 than it is to month number 6, so we'll recode the month numbers to reflect that, setting August as the hottest month.
 
 Finally, we'll convert all NAs in the factor columns to a "missing" level. This will let us keep rows with NA in the models but all missing will have the same value. This is a choice that could be revisited later.
 
 ```{r feature engineering}
-# get all levels of lab_analysis columns
-labs <- wq_meta |> select(contains("lab_analysis")) |>
-  pivot_longer(cols = everything(),
-               names_to = "lab_analysis",
-               values_to = "value") |>
-  pull(value) |>
-  unique()
-
-wq_meta <- wq_meta |>
-  mutate(across(contains("lab_analysis"),
-                \(x) fct_expand(x,levels(labs),after=0)))
+# get all levels of lab_analysis columns matched with year
+all_labs <- wq_meta |> 
+  select(contains("lab_analysis"),site_id) |>
+  pivot_longer(cols = contains("x"),
+               names_to = "year",
+               values_to = "lab") |> 
+  mutate(year = as.numeric(str_extract(year,"[0-9]+"))) |> 
+  mutate(lab = as.character(lab)) |> 
+  filter(lab != "NA") |> 
+  mutate(lab = as.factor(lab))
+  
 
 # convert all N/As in factor columns to a "missing" level
 # This will let us keep rows with NA in the models but all missing will have the same value
@@ -216,7 +217,7 @@ wq_meta <- wq_meta |>
   mutate(across(where(is.factor), ~ fct_na_value_to_level(.x,level = "missing")))
 
 # feature engineering
-wq_data <- wq_data %>%
+wq_data <- wq_data_raw %>%
   # use of dplyr pipe needed for duckplyr, not native "|>" pipe
   # make 2-day precip column since 48-hour precip is a DEP standard
   # since observation time is typically in the morning don't include the current day's precip
@@ -254,11 +255,25 @@ wq_data <- wq_data |>
 # July is the hottest month in NYC
 wq_data <- wq_data |>
   mutate(season = as.numeric(factor(month(date), levels = 1:12, labels = c(0,1,2,3,4,5,6,5,4,3,2,1))))
+
+wq_data <- wq_data |>
+  left_join(all_labs,by = c("site_id","year")) 
+
+# convert all N/As in factor columns to a "missing" level
+# This will let us keep rows with NA in the models but all missing will have the same value
+# good or bad?
+#wq_data <- wq_data |>
+#   mutate(across(where(is.factor), ~ fct_na_value_to_level(.x,level = "missing")))
+wq_data <- wq_data |>
+   mutate(lab = fct_na_value_to_level(lab,level = "missing")) |> 
+  drop_na()
+
+
 ```
 
 ## Exploratory Data Analysis
 
-Let's start by looking at a map of all the sampling sites. Many sites are no longer being tested. The upper half of Manhattan, both on the Hudson side and the East River side are not included in the most recent data. We have to be careful about drawing conclusions about changes over time for the whole sampling set because the sites are not constant.
+Let's start by looking at a map of all the sampling sites. Many sites (in red, below) are no longer being tested. The upper half of Manhattan, both on the Hudson side and the East River side are not included in the most recent data. We have to be careful about drawing conclusions about changes over time for the whole sampling set because the sites are not constant.
 
 ```{r show map of stations}
 # convert wq_meta into a simple features object
@@ -290,7 +305,7 @@ The data contains the "sewershed" for each site. Sewersheds are areas of the cit
 
 </iframe>
 
-A problem we often face with prediction models is the data is not nicely distributed. Bacteria levels in our dataset are very skewed. We get a more balanced distribution if we bin the levels into quality categories. We will use this as our target variable for prediction.
+A problem we often face with prediction models is the data is not nicely distributed. Bacteria levels in our dataset are very skewed. We get a more balanced distribution if we bin the levels into DEP quality categories. We will use this as our target variable for prediction.
 
 ::: {layout-ncol="2"}
 ```{r bacteria_hist}
@@ -318,7 +333,7 @@ wq_data |>
 
 Similarly, we can look at the distributions for the other numeric features in our dataset. We have already converted month numbers into a seasonality feature so we won't use "month" as a predictor. We see that most of the observations happen in the warm months.
 
-Precipitation shows a skewed distribution. Most days it does not rain but the wider time windows are slightly more evenly distributed.
+Precipitation shows a skewed distribution. This is an example of how EDA can help us think about the model features. Most days it does not rain but the wider time windows are slightly more evenly distributed, so let's just use the precipitation for the entire prior week in the model.
 
 Tide times are evenly distributed, as we would expect.
 
@@ -398,7 +413,11 @@ wq_10 |>
 ```
 :::
 
-In addition to numeric variable we have several categorical variables in the dataset. Each sampling site has a unique identifier, an associated sewershed, the body of water it is in (e.g. Hudson River) and a classification of suitable usage of the water body (e.g. fishing, swimming, etc). Are some sites cleaner or dirtier than others? Yes. As we would expect, sites in water bodies with more flow are cleaner.
+In addition to numeric variables we have several categorical (aka "factor") variables in the dataset. Each sampling site has a unique identifier, an associated sewershed, the body of water it is in (e.g. Hudson River) and a classification of suitable usage of the water body (e.g. fishing, swimming, etc).
+
+More recently, the dataset has included the lab that did the water analysis. It might be interesting to see if a lab bias exists but fewer than half the observations have this information, so we don't expect much.
+
+Are some sites cleaner or dirtier than others? Yes. As we would expect, sites in water bodies with more flow are cleaner.
 
 ::: {layout-ncol="2"}
 ```{r cleanest sites}
@@ -463,7 +482,7 @@ site_boxplots(wq_data, "Dirtiest")
 
 ## Let's Build a Model!
 
-Next to linear regression, random forests are one of the most popular machine learning algorithms. Random forests are a type of learning method, where multiple decision trees are trained on different subsets of the data and then combined to make a prediction. Since random forests are can handle a mix of categorical and numeric variables they are ideal for our dataset. You can learn more about this class of models [here](https://www.ibm.com/topics/random-forest). The `tidymodels` suite of packages from [posit.co](https://posit.co/) makes it easy to build and test a random forest model in R.
+Next to linear regression, random forests are one of the most popular machine learning algorithms. Random forests are a type of learning method, where multiple decision trees are trained on different subsets of the data and then combined to make a prediction. Since random forests can handle a mix of categorical and numeric variables they are ideal for our dataset. You can learn more about this class of models [here](https://www.ibm.com/topics/random-forest). The `tidymodels` suite of packages from [posit.co](https://posit.co/) makes it easy to build and test a random forest model in R.
 
 Models can easily [describe]{.underline} any data set but we are interested in [predicting]{.underline} out of sample data. To do this we need to split our data into a training set and a testing set. We will use the training set to build the model and the testing set to evaluate the model's ability to predict. We have over 13,000 individual samples across all dates and sites. Our training set is a sort-of random sample of 75% of the data. I say "sort of" because we need stratify the split so that the same proportion of "SAFE", "CAUTION" and "UNSAFE" samples are in both the training and testing sets.
 
@@ -471,7 +490,7 @@ At this point we are ready to set up the model. The tidymodels framework involve
 
 Select data, add model, add recipe and fit. That's it? Well, the coding is the easy part. In truth, there is a lot to think about in deciding what machine learning algorithm is best suited to the task, how to transform the inputs for imbalanced data and how to tune the model. The good news is the tidymodels framework makes it easy to experiment with different approaches. Check out the [tidymodels site](https://www.tidymodels.org/start/) for a doorway to the rabbit hole of machine learning in R.
 
-```{r}
+```{r specify model}
 # Model ------------------------------------------------------------------------
 # select only variables for model
 wq_subset <- wq_data |>
@@ -482,15 +501,23 @@ wq_subset <- wq_data |>
     site_id,
     year,
     time_since_high_tide,
-    precip_t0,
-    precip_48,
-    precip_earlier,
+    # precip_t0,
+    # precip_48,
+    # precip_earlier,
+    precip_week,
     water_body,
     water_class,
-    sewershed
+    sewershed,
+    lab
   ) |>
   # remove rows with missing values
   drop_na()
+
+# or...we could aggregate the precipitation data
+# wq_subset <- wq_subset |>
+#   #sum across all precip columns
+#   mutate(precip_total = precip_t0 + precip_48 + precip_earlier) |>
+#   select(-c(precip_t0, precip_48, precip_earlier))
 
 # seeding the random number generator ensures reproducibility
 set.seed(123)
@@ -520,29 +547,35 @@ wq_fit<- wq_wf |>
 
 Unlike linear regression, random forests are not easily interpretable. We can't just look at the coefficients to see how each variable contributes to the prediction. After fitting to our training set, we can look at the variable importance plot. This plot shows the relative contribution of each variable to the prediction. Still, we don't know the direction of the relationship or the strength of the relationship. We can only say that the variable is important in predicting the outcome.
 
-```{r}
+```{r variable importance}
 # show variable importance
 wq_fit |>
   extract_fit_parsnip() |>
-  vip::vip(aesthetics = list(fill = "blue")) +
+  vip::vip(aesthetics = list(fill = "lightblue")) +
   labs(title = "Water Quality Variable Importance",
        subtitle = 'Random Forest Classifier to Predict "Safe", "Caution" or "Unsafe ') +
   theme_minimal()
 
 ```
 
-Tide time looks to be the most important variable, followed by the site location. Surprisingly, the sewershed is far down the list. Again, this is not like linear regression. If we look at the correlation of just tide time and quality, there is nothing visually apparent.
+Rainfall looks to be the most important variable, followed by tide time and site location. Surprisingly, the sewershed and water body are far down the list. The more specific location factor, `site_id` contributes more. Again, this is not like linear regression, but if we look at the correlation of just rainfall and quality, there is some relation. This reinforces our intuition that CSOs are a driver of pollution.
 
-```{r}
-wq_subset |> ggplot(aes(quality,time_since_high_tide)) + 
-  geom_boxplot(fill = "lightblue") +
+```{r rain vs bacteria}
+wq_subset |>
+  summarise(.by = quality, median_precip = median(precip_week)) |>
+  ggplot(aes(quality, median_precip)) +
+  geom_col(fill = "lightblue") +
+  labs(subtitle = "Median Weekly Precipitation by Water Quality",
+       title = "More Rain, More Bacteria",
+       x = "Water Quality",
+       y = "Median Weekly Precipitation (inches)") +
   theme_minimal()
-  
 
 ```
-As noted above, we expect to get a good fit in-sample since we are really just describing the training set.  The output of the the model is expressed as the liklihood each observation is from the "Safe", "Caution" or "Unsafe" class. We can plot the predicted probability of each class for each observation. The plot below shows the predicted probability of each class for each observation in the training set. The color of the points indicates the actual class. The diagonal line is where the predicted probability equals the actual probability. The further the points are from the line, the less confident the model is in its prediction.
 
-For example, in the chart below, the "SAFE" panel contains all the observations where the bacteria level is in the "SAFE" range.  The dots in the lower right corner are the observations where the model is nearly certain of it's prediction, 100% likely that the water is "SAFE" and 0% likely the water is "UNSAFE."  The balance of the dots are in the correct quadrant so our description of the training set is pretty good.
+As noted above, we expect to get a good fit in-sample since we are really just describing the training set. The output of the the model is expressed as the liklihood each observation is from the "Safe", "Caution" or "Unsafe" class. We can plot the predicted probability of each class for each observation. The plot below shows the predicted probability of each class for each observation in the training set. The color of the points indicates the actual class. The diagonal line is where the predicted probability equals the actual probability. The further the points are from the line, the less confident the model is in its prediction.
+
+For example, in the chart below, the "SAFE" panel contains all the observations where the bacteria level is in the "SAFE" range. The dots in the lower right corner are the observations where the model is nearly certain of it's prediction, 100% likely that the water is "SAFE" and 0% likely the water is "UNSAFE." The balance of the dots are in the correct quadrant so our description of the training set is pretty good.
 
 ```{r plot fit for training set}
 # plot prediction confidence
@@ -560,15 +593,32 @@ wq_pred_train |>
        x = "Probablility Actual Is Safe",
        y = "Probablility Actual Is Unsafe")
 ```
+
 ## Is the Model Any Good?
 
-Now let's fit the model to the testing set and see how well it predicts the out-of-sample data.  While the larger mass of points seems to be in the correct quadrants there are many observations where the model is very confident, but wrong.
-
+Now let's fit the model to the testing set and see how well it predicts the out-of-sample data. While the larger mass of points seems to be in the correct quadrants there are many observations where the model is very confident, but wrong.
 
 ```{r plot fit for test set}
 # plot prediction confidence
 wq_pred <- wq_fit |>
   augment(new_data = wq_test)
+
+xt <- wq_pred |>
+  conf_mat(truth = quality, estimate = .pred_class) |>
+  # return just the confusion matrix
+  pluck("table") |>
+  as_tibble() |>
+  group_by(Prediction) |>
+  mutate(.prop = n/sum(n)) |>
+  ungroup()
+
+safe_risk <- xt |>
+  filter(Prediction == "Safe",Truth == "Safe") |>
+  pull(.prop) |> prod(100) |> round()
+
+unsafe_risk <- xt |>
+  filter(Prediction == "Safe",Truth == "Unsafe") |>
+  pull(.prop) |> prod(100) |> round()
 
 wq_pred |>
   ggplot(aes(x = .pred_Safe, y = .pred_Unsafe, color = quality)) +
@@ -581,7 +631,8 @@ wq_pred |>
        x = "Probablility Actual Is Safe",
        y = "Probablility Actual Is Unsafe")
 ```
-We can more precisely quantify the performance of the model with a "truth table."  Here we see the actual and predicted counts of each class.  Given a prediction, how likely is it to be correct? 66% of the "SAFE" predictions were correct, but 15% of the times when the model said the water was "SAFE" if was actually "UNSAFE," which is probably the most problematic result. Would I swim in "safe" water where there is a 15% chance I might get sick? No. The model also has very little ability to identify "CAUTION" conditions.  In fairness, the range of bacteria levels between "SAFE" and "UNSAFE" is very narrow so we expect that only slight changes in conditions would tip the observation into another category.
+
+We can more precisely quantify the performance of the model with a "truth table." Here we see the actual and predicted counts of each class. Given a prediction, how likely is it to be correct? `{r} safe_risk`% of the "SAFE" predictions were correct, but `{r} unsafe_risk`% of the times when the model said the water was "SAFE" if was actually "UNSAFE," which is probably the most problematic result. Would I swim in "safe" water where there is a `{r} unsafe_risk`% chance I might get sick? No. The model also has very little ability to identify "CAUTION" conditions. In fairness, the range of bacteria levels between "SAFE" and "UNSAFE" is very narrow so we expect that only slight changes in conditions would tip the observation into another category.
 
 ```{r truth table alt}
 # show a confusion matrix
@@ -686,23 +737,126 @@ roc <- wq_pred |>
 
 truth_table(xt_prop,"prop")
 ```
-Another common way to visualize the performance of a model is with a "receiver operator characteristic" (ROC) curve.  The ROC curve shows the trade off between true positives and false positives for each class. The larger the area under the curves (AUC), the better the model. An AUC of 1.0 is perfect while 0.5 is what random chance would show. In our case we have a combined AUC of `{r} round(roc$.estimate,2)`, which is not great but not terrible.
+
+Another common way to visualize the performance of a model is with a "receiver operator characteristic" (ROC) curve. The ROC curve shows the trade off between true positives and false positives for each class. The larger the area under the curves (AUC), the better the model. An AUC of 1.0 is perfect while 0.5 is what random chance would show. In our case we have a combined AUC of `{r} round(roc$.estimate,2)`, which is better than useless but not great.
 
 ```{r plot ROC}
 # plot a ROC curve
+
 wq_pred |>
   roc_curve(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe) |>
   ggplot(aes(x = 1 - specificity, y = sensitivity,color=.level)) +
   geom_path() +
+  scale_color_manual(values = c("orange","green","red")) +
   geom_abline(lty = 3) +
   coord_equal() +
+  labs(
+    title = "ROC Curve",
+    subtitle = "All Three Water Classifications",
+    x = "False Positive Rate",
+    y = "True Positive Rate",
+    color = "Classification"
+  ) +
   theme_bw()
 ```
 
-There are other metrics we could use but you get the idea.  We could also tune the model to see if we could improve the performance, but in our case it would not help much.  Refer to the tidymodels site for tuning tips and more performance statistics.
+We can easily tweak this model. Looking at rainfall as separate daily factors improves the truth table slightly but masks rainfall as the most important factor. We can quickly visualize the difference using the ROC.  Splitting rainfall into three separate time windows rather than the full week improves the model slightly. 
 
-We could also look for other variables not present in the BOP data set that might be useful.  I've looked at imputing tidal current and including daily temperature. Neither made much of a difference. You can see [my experiments on Github](https://github.com/apsteinmetz/oyster).  They include techniques for downloading tide and weather data from the NOAA and matching NOAA stations to water sampling stations.
+```{r alt feature set}
+# select only variables for model
+wq_subset_2 <- wq_data |>
+  # make year a category, rather than numeric
+  mutate(year = as.factor(year)) |> 
+  select(
+    quality,
+    site_id,
+    year,
+    time_since_high_tide,
+    precip_t0,
+    precip_48,
+    precip_earlier,
+    # precip_week,
+    water_body,
+    water_class,
+    sewershed,
+    lab
+  ) |>
+  # remove rows with missing values
+  drop_na()
+
+# or...we could aggregate the precipitation data
+# wq_subset <- wq_subset |>
+#   #sum across all precip columns
+#   mutate(precip_total = precip_t0 + precip_48 + precip_earlier) |>
+#   select(-c(precip_t0, precip_48, precip_earlier))
+
+# seeding the random number generator ensures reproducibility
+set.seed(123)
+# split data into training and testing sets
+wq_split_2 <- initial_split(wq_subset_2, prop = 0.75, strata = quality)
+wq_train_2 <- training(wq_split_2)
+wq_test_2 <- testing(wq_split_2)
+
+# choose the model
+wq_rf_2 <- rand_forest() |>
+  set_engine("ranger",importance = "impurity") |>
+  set_mode("classification")
+
+# create a recipe
+wq_recipe_2 <- recipe(quality ~ ., data = wq_train_2) |>
+  step_normalize(all_numeric_predictors())
+
+# combine into a workflow
+wq_wf_2 <- workflow() |>
+  add_model(wq_rf_2) |>
+  add_recipe(wq_recipe_2)
+
+# fit with training data
+wq_fit_2<- wq_wf_2 |>
+  fit(data = wq_train_2)
+
+wq_pred_2 <- wq_fit_2 |>
+  augment(new_data = wq_test_2)
+
+# plot a ROC curve
+
+rc1 <- wq_pred |>
+  roc_curve(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe) |> 
+  filter(.level == "Unsafe")|> 
+  mutate(.level = "Single Full Week Precip Factor")
+
+rc2 <- wq_pred_2 |>
+  roc_curve(truth = quality, .pred_Safe,.pred_Caution,.pred_Unsafe) |> 
+  filter(.level == "Unsafe") |> 
+  mutate(.level = "3 Precip Factors")
+
+bind_rows(rc1, rc2) |>
+  ggplot(aes(
+    x = 1 - specificity,
+    y = sensitivity,
+    color = .level
+  )) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  labs(
+    title = "Effect of Feature Choices on Accuracy",
+    subtitle = 'ROC Curve for "SAFE" class only',
+    x = "False Positive Rate",
+    y = "True Positive Rate",
+    color = "Features Choice"
+  ) +
+  coord_equal() +
+  theme_bw()
+
+```
+
+
+There are other metrics we could use but you get the idea. We could also tune the model to see if we could improve the performance, but in this case I found it did not help much so I don't include it. Refer to the tidymodels site for tuning tips and more performance statistics.
+
+We could also look for other variables not present in the BOP data set that might be useful. I've looked at imputing tidal current and including daily temperature. Neither made much of a difference. You can see [these experiments on Github](https://github.com/apsteinmetz/oyster). They include techniques for downloading tide and weather data from the NOAA and matching NOAA stations to water sampling stations.
 
 ## Conclusion
 
-In this project we've seen how easy it is to build a powerful machine learning model using the `tidymodels` tools.  As citizen scientists we were able to gather and use publicly available data to gain insight into the factors influencing water quality in New York Harbor.  We've also learned about how important oysters were to the city in days past and can dream about a day (alas, not likely in our lifetimes) when oysters "as big as dinner plates" are once again living in the harbor.
+In this project we've seen how easy it is to build a powerful machine learning model using the `tidymodels` tools. As citizen scientists we were able to gather and use publicly available data to gain insight into the factors influencing water quality in New York Harbor. We've also learned about how important oysters were to the city in days past and can dream about a day (alas, not likely in our lifetimes) when oysters "as big as dinner plates" are once again living in the harbor.
+
+Don't forget to check out [The Billion Oyster Project](https://www.billionoysterproject.org/). They have lot's of ways to contribute!
